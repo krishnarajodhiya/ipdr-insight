@@ -1,0 +1,4 @@
+backend/ipdr_insight.db
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
