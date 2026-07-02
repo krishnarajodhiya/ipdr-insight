@@ -28,6 +28,12 @@ import { apiFetch, downloadBlob } from "./api";
 
 const STORAGE_KEY = "ipdr_insight_token";
 const ACCENT = "#1e40af";
+const BOOT_MESSAGES = [
+  "Authenticating session...",
+  "Loading IPDR records...",
+  "Initializing network graph...",
+  "Establishing secure connection...",
+];
 
 function formatValue(value) {
   if (value === null || value === undefined || value === "") return "-";
@@ -69,6 +75,42 @@ function Skeleton({ className }) {
   return <div className={`skeleton rounded-xl ${className}`} />;
 }
 
+function CyberBackdrop() {
+  return (
+    <>
+      <div className="auth-bg-gradient" />
+      <div className="auth-bg-grid" />
+      <svg className="auth-bg-network" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden>
+        <g>
+          <line x1="120" y1="140" x2="380" y2="240" />
+          <line x1="380" y1="240" x2="620" y2="180" />
+          <line x1="620" y1="180" x2="860" y2="280" />
+          <line x1="860" y1="280" x2="1040" y2="220" />
+          <line x1="260" y1="430" x2="520" y2="360" />
+          <line x1="520" y1="360" x2="740" y2="470" />
+          <line x1="740" y1="470" x2="980" y2="390" />
+          <line x1="210" y1="640" x2="470" y2="560" />
+          <line x1="470" y1="560" x2="690" y2="640" />
+          <line x1="690" y1="640" x2="930" y2="580" />
+          <circle cx="120" cy="140" r="3" />
+          <circle cx="380" cy="240" r="3.5" />
+          <circle cx="620" cy="180" r="3" />
+          <circle cx="860" cy="280" r="3.5" />
+          <circle cx="1040" cy="220" r="3" />
+          <circle cx="260" cy="430" r="3.2" />
+          <circle cx="520" cy="360" r="3.5" />
+          <circle cx="740" cy="470" r="3.2" />
+          <circle cx="980" cy="390" r="3" />
+          <circle cx="210" cy="640" r="3" />
+          <circle cx="470" cy="560" r="3.5" />
+          <circle cx="690" cy="640" r="3.2" />
+          <circle cx="930" cy="580" r="3" />
+        </g>
+      </svg>
+    </>
+  );
+}
+
 function LoginView({ onLogin }) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin123");
@@ -93,31 +135,58 @@ function LoginView({ onLogin }) {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-xl fade-in">
-        <p className="text-sm uppercase tracking-[0.22em] font-semibold" style={{ color: ACCENT }}>
-          IPDR Insight
-        </p>
-        <h1 className="mt-3 text-3xl font-bold heading-tight text-slate-900">Investigation Console Login</h1>
-        <p className="mt-2 text-sm muted">Access the communication analysis dashboard.</p>
-        <form onSubmit={submit} className="mt-6 space-y-4">
-          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            type="password"
-            className="w-full"
-          />
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          <button
-            disabled={loading}
-            className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
-            style={{ backgroundColor: ACCENT }}
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+    <div className="relative min-h-full overflow-hidden px-4">
+      <CyberBackdrop />
+      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
+        <div className="w-full rounded-2xl border border-white/40 bg-white/92 p-8 shadow-2xl backdrop-blur-md fade-in">
+          <div className="mb-6 text-center">
+            <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
+              <Network size={20} />
+            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.26em] text-blue-800">IPDR INSIGHT</p>
+            <h1 className="mt-2 text-3xl font-bold heading-tight text-slate-900">Secure Access</h1>
+            <p className="mt-2 text-sm muted">Investigation dashboard authentication</p>
+          </div>
+          <form onSubmit={submit} className="space-y-4">
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              type="password"
+              className="w-full"
+            />
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            <button
+              disabled={loading}
+              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
+              style={{ backgroundColor: ACCENT }}
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BootScreen({ message, progress }) {
+  return (
+    <div className="relative min-h-full overflow-hidden">
+      <CyberBackdrop />
+      <div className="relative z-10 flex min-h-full items-center justify-center px-4">
+        <div className="w-full max-w-lg text-center">
+          <div className="boot-logo-pulse text-3xl font-bold tracking-[0.18em] text-white">IPDR INSIGHT</div>
+          <p className="mt-3 text-xs uppercase tracking-[0.26em] text-blue-200/90">System initializing</p>
+          <div className="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+            <div
+              className="h-full rounded-full bg-blue-300 transition-all duration-300"
+              style={{ width: `${Math.max(8, Math.min(100, progress))}%` }}
+            />
+          </div>
+          <p className="mt-4 text-sm text-slate-200">{message}</p>
+        </div>
       </div>
     </div>
   );
@@ -903,6 +972,46 @@ function Shell({ token, username, onLogout }) {
 
 export default function App() {
   const auth = useAuth();
-  if (!auth.token) return <LoginView onLogin={auth.login} />;
+  const [booting, setBooting] = useState(false);
+  const [bootProgress, setBootProgress] = useState(0);
+  const [bootIndex, setBootIndex] = useState(0);
+
+  useEffect(() => {
+    if (!booting) return undefined;
+    setBootProgress(8);
+    setBootIndex(0);
+    const started = Date.now();
+    const duration = 2100;
+    const progressTimer = setInterval(() => {
+      const elapsed = Date.now() - started;
+      const pct = (elapsed / duration) * 100;
+      setBootProgress(pct);
+      if (elapsed >= duration) {
+        clearInterval(progressTimer);
+        clearInterval(textTimer);
+        setBootProgress(100);
+        setTimeout(() => setBooting(false), 120);
+      }
+    }, 90);
+    const textTimer = setInterval(() => {
+      setBootIndex((idx) => (idx + 1) % BOOT_MESSAGES.length);
+    }, 560);
+    return () => {
+      clearInterval(progressTimer);
+      clearInterval(textTimer);
+    };
+  }, [booting]);
+
+  if (!auth.token) {
+    return (
+      <LoginView
+        onLogin={(payload) => {
+          auth.login(payload);
+          setBooting(true);
+        }}
+      />
+    );
+  }
+  if (booting) return <BootScreen message={BOOT_MESSAGES[bootIndex]} progress={bootProgress} />;
   return <Shell token={auth.token} username={auth.username} onLogout={auth.logout} />;
 }
