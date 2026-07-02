@@ -62,5 +62,14 @@ Open the Vite URL in your browser and log in with:
 - **Frontend (Vercel):** set root directory to `frontend`
 - **Frontend API URL:** `VITE_API_URL=https://<your-backend-domain>`
 
+## UI/UX design notes
+
+- Light professional interface (`#f8fafc` background, white cards, deep blue accent `#1e40af`)
+- Sidebar with tinted background and active left-border navigation state
+- Stat cards with left accents + icons (Database, Users, Network, AlertTriangle)
+- Interactive network graph with zoom/pan, legend, tooltips, and reset view
+- Clickable top-flagged cards that focus corresponding graph nodes
+- Drag-and-drop upload zone and loading skeletons for smoother state transitions
+
 ## Data handling note
 This prototype is intended for locally uploaded sample data only. It does not connect to external services or implement live surveillance.

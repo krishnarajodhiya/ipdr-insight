@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --accent: #1e40af;
+  --accent-soft: #dbeafe;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --line: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #475569;
+}
+
 html,
 body,
 #root {
@@ -9,47 +19,75 @@ body,
 }
 
 body {
-  @apply bg-cyan-50 text-slate-900 antialiased;
+  @apply antialiased;
+  background: var(--surface-muted);
+  color: var(--text);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #0ea5e9 #e0f2fe;
+  scrollbar-color: #94a3b8 #f1f5f9;
 }
 
 input,
 select,
 textarea {
-  @apply bg-white border border-sky-200 rounded-lg px-3 py-2 outline-none focus:border-cyan-500;
+  @apply rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.12);
 }
 
 button {
   @apply transition;
 }
 
-.bg-slate-950,
-.bg-slate-950\/70,
-.bg-slate-950\/80,
-.bg-slate-900,
-.bg-slate-900\/60,
-.bg-slate-900\/80 {
-  background-color: #ffffff !important;
+.card {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
 }
 
-.text-slate-100,
-.text-slate-200,
-.text-slate-300,
-.text-slate-400,
-.text-slate-500 {
-  color: #0f172a !important;
+.card-interactive {
+  @apply transition duration-200 hover:-translate-y-0.5 hover:shadow-md;
 }
 
-.border-slate-700,
-.border-slate-800,
-.border-slate-800\/70 {
-  border-color: #bfdbfe !important;
+.heading-tight {
+  letter-spacing: -0.02em;
 }
 
-.shadow-glow {
-  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.25), 0 16px 40px rgba(14, 165, 233, 0.15) !important;
+.muted {
+  color: var(--text-muted);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 45%, #eef2f7 65%);
+  background-size: 240% 100%;
+  animation: shimmer 1.3s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 250ms ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

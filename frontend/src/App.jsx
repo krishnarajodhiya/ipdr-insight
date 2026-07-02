@@ -1,27 +1,49 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { forceCenter, forceLink, forceManyBody, forceSimulation } from "d3-force";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceRadial,
+  forceSimulation,
+  forceX,
+  forceY,
+} from "d3-force";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  AlertTriangle,
+  Database,
+  LayoutDashboard,
+  LogOut,
+  Network,
+  Search,
+  Settings,
+  Upload,
+  Users,
+  ZoomIn,
+  ZoomOut,
+  RefreshCw,
+} from "lucide-react";
 import { apiFetch, downloadBlob } from "./api";
 
 const STORAGE_KEY = "ipdr_insight_token";
+const ACCENT = "#1e40af";
 
 function formatValue(value) {
   if (value === null || value === undefined || value === "") return "-";
   return value;
 }
 
-function badgeClass(level) {
-  if (level === "High") return "bg-red-500/15 text-red-300 border-red-500/30";
-  if (level === "Medium") return "bg-amber-500/15 text-amber-300 border-amber-500/30";
-  return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+function riskTone(level) {
+  if (level === "High") return "text-red-700 bg-red-50 border-red-200";
+  if (level === "Medium") return "text-amber-700 bg-amber-50 border-amber-200";
+  return "text-slate-700 bg-slate-100 border-slate-200";
+}
+
+function riskBorder(level) {
+  if (level === "High") return "border-l-red-500";
+  if (level === "Medium") return "border-l-amber-500";
+  return "border-l-slate-300";
 }
 
 function useAuth() {
@@ -41,6 +63,10 @@ function useAuth() {
   };
 
   return { token, username, login, logout };
+}
+
+function Skeleton({ className }) {
+  return <div className={`skeleton rounded-xl ${className}`} />;
 }
 
 function LoginView({ onLogin }) {
@@ -67,16 +93,14 @@ function LoginView({ onLogin }) {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-slate-950 px-4">
-      <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 shadow-glow">
-        <div className="mb-6">
-          <p className="text-sm uppercase tracking-[0.35em] text-cyan-400">IPDR Insight</p>
-          <h1 className="mt-2 text-3xl font-semibold">Secure demo login</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            Use the offline sample dataset to explore A-party to B-party communications.
-          </p>
-        </div>
-        <form onSubmit={submit} className="space-y-4">
+    <div className="min-h-full flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-xl fade-in">
+        <p className="text-sm uppercase tracking-[0.22em] font-semibold" style={{ color: ACCENT }}>
+          IPDR Insight
+        </p>
+        <h1 className="mt-3 text-3xl font-bold heading-tight text-slate-900">Investigation Console Login</h1>
+        <p className="mt-2 text-sm muted">Access the communication analysis dashboard.</p>
+        <form onSubmit={submit} className="mt-6 space-y-4">
           <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
           <input
             value={password}
@@ -85,145 +109,251 @@ function LoginView({ onLogin }) {
             type="password"
             className="w-full"
           />
-          {error ? <p className="text-sm text-red-300">{error}</p> : null}
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <button
             disabled={loading}
-            className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950 hover:bg-cyan-400"
+            className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
+            style={{ backgroundColor: ACCENT }}
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>
-        <p className="mt-5 text-xs text-slate-500">
-          Demo credentials: <span className="text-slate-300">admin / admin123</span>
-        </p>
       </div>
     </div>
   );
 }
 
-function Shell({ token, username, onLogout }) {
-  const [view, setView] = useState("dashboard");
+function StatCard({ label, value, icon: Icon, accent }) {
   return (
-    <div className="min-h-full bg-slate-950 text-slate-100">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 flex-col border-r border-slate-800 bg-slate-950/80 p-5 lg:flex">
-          <div className="mb-8">
-            <p className="text-xs uppercase tracking-[0.35em] text-cyan-400">IPDR Insight</p>
-            <h2 className="mt-2 text-2xl font-semibold">Investigation Console</h2>
-          </div>
-          <nav className="space-y-2">
-            {["dashboard", "search", "settings"].map((item) => (
-              <button
-                key={item}
-                onClick={() => setView(item)}
-                className={`w-full rounded-xl px-4 py-3 text-left capitalize ${
-                  view === item ? "bg-cyan-500/15 text-cyan-300" : "text-slate-300 hover:bg-slate-900"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-          </nav>
-          <div className="mt-auto pt-6">
-            <button onClick={onLogout} className="w-full rounded-xl border border-slate-700 px-4 py-3 text-slate-300">
-              Logout
-            </button>
-          </div>
-        </aside>
-
-        <main className="flex-1">
-          <header className="border-b border-slate-800 bg-slate-950/70 px-4 py-4 backdrop-blur lg:px-8">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm text-slate-400">Logged in as {username}</p>
-                <h1 className="text-xl font-semibold capitalize">{view}</h1>
-              </div>
-              <div className="flex gap-2 lg:hidden">
-                {["dashboard", "search", "settings"].map((item) => (
-                  <button
-                    key={item}
-                    onClick={() => setView(item)}
-                    className={`rounded-lg px-3 py-2 text-sm capitalize ${
-                      view === item ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-900 text-slate-300"
-                    }`}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </header>
-
-          <div className="p-4 lg:p-8">
-            {view === "dashboard" ? <DashboardView token={token} /> : null}
-            {view === "search" ? <SearchView token={token} /> : null}
-            {view === "settings" ? <SettingsView token={token} /> : null}
-          </div>
-
-          <footer className="border-t border-slate-800 px-4 py-4 text-xs text-slate-500 lg:px-8">
-            Demo notice: locally uploaded sample data only; no live surveillance or external services.
-          </footer>
-        </main>
+    <div className="card card-interactive border-l-4 p-5 fade-in" style={{ borderLeftColor: accent }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium muted">{label}</p>
+          <p className="mt-3 text-3xl font-bold heading-tight text-slate-900">{value}</p>
+        </div>
+        <div className="rounded-full p-2.5" style={{ backgroundColor: `${accent}1a` }}>
+          <Icon size={18} style={{ color: accent }} />
+        </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, tone = "cyan" }) {
-  const tones = {
-    cyan: "border-cyan-500/20 bg-cyan-500/10 text-cyan-300",
-    amber: "border-amber-500/20 bg-amber-500/10 text-amber-300",
-    red: "border-red-500/20 bg-red-500/10 text-red-300",
-    emerald: "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
-  };
-  return (
-    <div className={`rounded-2xl border p-4 ${tones[tone]}`}>
-      <p className="text-sm text-slate-400">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-100">{value}</p>
-    </div>
-  );
-}
+function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) {
+  const width = 940;
+  const height = 560;
+  const [hover, setHover] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef(null);
 
-function NetworkGraph({ nodes = [], edges = [] }) {
   const graph = useMemo(() => {
-    const simNodes = nodes.map((node) => ({ ...node }));
+    const degree = {};
+    edges.forEach((e) => {
+      degree[e.source] = (degree[e.source] || 0) + Number(e.weight || 1);
+      degree[e.target] = (degree[e.target] || 0) + Number(e.weight || 1);
+    });
+
+    const simNodes = nodes.map((node) => ({
+      ...node,
+      degree: degree[node.id] || 1,
+      riskLevel: riskLookup[node.id] || "Low",
+    }));
     const simLinks = edges.map((edge) => ({ ...edge }));
+
+    const radius = (node) => {
+      const base = node.type === "a" ? 10 : 7;
+      return Math.min(24, base + Math.sqrt(node.degree || 1));
+    };
+
     const sim = forceSimulation(simNodes)
-      .force("link", forceLink(simLinks).id((d) => d.id).distance(120).strength(0.8))
-      .force("charge", forceManyBody().strength(-260))
-      .force("center", forceCenter(450, 280))
+      .force("link", forceLink(simLinks).id((d) => d.id).distance((d) => 110 - Math.min(35, Number(d.weight || 1) * 2)).strength(0.45))
+      .force("charge", forceManyBody().strength((d) => (d.type === "a" ? -420 : -220)))
+      .force("collide", forceCollide().radius((d) => radius(d) + 8).strength(0.95))
+      .force("center", forceCenter(width / 2, height / 2))
+      .force("center-x", forceX(width / 2).strength((d) => (d.type === "a" ? 0.15 : 0.04)))
+      .force("center-y", forceY(height / 2).strength((d) => (d.type === "a" ? 0.15 : 0.04)))
+      .force("ring-b", forceRadial(Math.min(width, height) * 0.32, width / 2, height / 2).strength((d) => (d.type === "b" ? 0.065 : 0)))
       .stop();
-    for (let i = 0; i < 220; i += 1) sim.tick();
-    return { nodes: simNodes, links: simLinks };
-  }, [nodes, edges]);
+
+    for (let i = 0; i < 280; i += 1) sim.tick();
+    simNodes.forEach((n) => {
+      n.x = Math.max(35, Math.min(width - 35, n.x || width / 2));
+      n.y = Math.max(35, Math.min(height - 35, n.y || height / 2));
+    });
+
+    return { nodes: simNodes, links: simLinks, radius };
+  }, [nodes, edges, riskLookup]);
+
+  const resetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const adjustZoom = (delta) => {
+    setZoom((z) => Math.max(0.5, Math.min(2.2, z + delta)));
+  };
+
+  const onWheel = (e) => {
+    e.preventDefault();
+    adjustZoom(e.deltaY > 0 ? -0.08 : 0.08);
+  };
+
+  const onMouseDown = (e) => {
+    setDragging(true);
+    dragRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const onMouseMove = (e) => {
+    if (dragging && dragRef.current) {
+      const dx = e.clientX - dragRef.current.x;
+      const dy = e.clientY - dragRef.current.y;
+      setOffset((o) => ({ x: o.x + dx, y: o.y + dy }));
+      dragRef.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+
+  const stopDrag = () => {
+    setDragging(false);
+    dragRef.current = null;
+  };
 
   return (
-    <svg viewBox="0 0 900 560" className="h-[420px] w-full rounded-2xl border border-slate-800 bg-slate-950">
-      {graph.links.map((link, index) => (
-        <line
-          key={index}
-          x1={link.source.x}
-          y1={link.source.y}
-          x2={link.target.x}
-          y2={link.target.y}
-          stroke="rgba(148,163,184,0.25)"
-          strokeWidth={Math.max(1, Math.min(4, link.weight || 1))}
-        />
-      ))}
-      {graph.nodes.map((node) => (
-        <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
-          <circle
-            r={node.type === "a" ? 14 : 11}
-            fill={node.flagged ? "#ef4444" : node.type === "a" ? "#22d3ee" : "#64748b"}
-            stroke="#0f172a"
-            strokeWidth="3"
-          />
-          <text y={24} textAnchor="middle" fontSize="10" fill="#cbd5e1">
-            {node.label}
-          </text>
+    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="absolute right-3 top-3 z-20 flex gap-2">
+        <button onClick={() => adjustZoom(0.12)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-sm">
+          <ZoomIn size={16} />
+        </button>
+        <button onClick={() => adjustZoom(-0.12)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-sm">
+          <ZoomOut size={16} />
+        </button>
+        <button onClick={resetView} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+          <RefreshCw size={14} className="inline mr-1" />
+          Reset view
+        </button>
+      </div>
+
+      <div className="absolute left-3 top-3 z-20 rounded-lg border border-slate-200 bg-white/95 p-2 text-xs text-slate-600 shadow-sm">
+        <div className="font-semibold text-slate-800">Legend</div>
+        <div className="mt-1 flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACCENT }} />A-party node</div>
+        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full border border-slate-400 bg-white" />B-party node</div>
+        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Flagged node</div>
+        <div className="mt-1">Node size = interaction volume</div>
+      </div>
+
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-full w-full cursor-grab"
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={stopDrag}
+        onMouseLeave={() => {
+          stopDrag();
+          setHover(null);
+        }}
+      >
+        <g transform={`translate(${offset.x} ${offset.y}) scale(${zoom})`}>
+          {graph.links.map((link, index) => {
+            const sx = link.source.x;
+            const sy = link.source.y;
+            const tx = link.target.x;
+            const ty = link.target.y;
+            const mx = (sx + tx) / 2 + (ty - sy) * 0.08;
+            const my = (sy + ty) / 2 + (sx - tx) * 0.08;
+            return (
+              <path
+                key={index}
+                d={`M ${sx} ${sy} Q ${mx} ${my} ${tx} ${ty}`}
+                fill="none"
+                stroke="rgba(148,163,184,0.38)"
+                strokeWidth={Math.max(0.8, Math.min(2.2, Number(link.weight || 1) * 0.22))}
+              />
+            );
+          })}
+          {graph.nodes.map((node) => {
+            const r = graph.radius(node);
+            const focused = focusedNode && focusedNode === node.id;
+            const isFlagged = node.riskLevel === "High" || node.riskLevel === "Medium";
+            const fill = isFlagged ? (node.riskLevel === "High" ? "#ef4444" : "#f59e0b") : node.type === "a" ? ACCENT : "#ffffff";
+            const stroke = node.type === "a" || isFlagged ? "#ffffff" : "#64748b";
+            const ring = focused ? "#22c55e" : isFlagged ? `${fill}55` : "transparent";
+            return (
+              <g
+                key={node.id}
+                transform={`translate(${node.x}, ${node.y})`}
+                onMouseEnter={(e) =>
+                  setHover({
+                    x: e.clientX,
+                    y: e.clientY,
+                    id: node.id,
+                    interactions: node.degree,
+                    risk: node.riskLevel,
+                  })
+                }
+                onMouseMove={(e) =>
+                  setHover((h) =>
+                    h
+                      ? {
+                          ...h,
+                          x: e.clientX,
+                          y: e.clientY,
+                        }
+                      : h
+                  )
+                }
+                onMouseLeave={() => setHover(null)}
+              >
+                <circle r={r + 4} fill={ring} />
+                <circle r={r} fill={fill} stroke={stroke} strokeWidth={node.type === "b" ? 1.8 : 2.6} />
+              </g>
+            );
+          })}
         </g>
-      ))}
-    </svg>
+      </svg>
+
+      {hover ? (
+        <div
+          className="pointer-events-none fixed z-30 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg"
+          style={{ left: hover.x + 12, top: hover.y + 12 }}
+        >
+          <div className="font-semibold text-slate-900">{hover.id}</div>
+          <div className="muted">Interactions: {hover.interactions}</div>
+          <div className="muted">Risk: {hover.risk}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UploadDropzone({ onFile }) {
+  const [dragging, setDragging] = useState(false);
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) onFile(file);
+      }}
+      className={`rounded-xl border-2 border-dashed p-4 text-sm transition ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
+    >
+      <div className="flex items-center gap-3">
+        <div className="rounded-full bg-blue-100 p-2 text-blue-700">
+          <Upload size={16} />
+        </div>
+        <div>
+          <p className="font-medium text-slate-800">Drag & drop IPDR file here</p>
+          <p className="muted">Supports CSV, TXT, JSON</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -234,13 +364,21 @@ function DashboardView({ token }) {
   const [topFlagged, setTopFlagged] = useState([]);
   const [uploadResult, setUploadResult] = useState(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [focusedNode, setFocusedNode] = useState(null);
+
+  const riskLookup = useMemo(
+    () => Object.fromEntries(topFlagged.map((r) => [r.a_party, r.risk_level])),
+    [topFlagged]
+  );
 
   async function load() {
     setError("");
+    setLoading(true);
     try {
       const [summaryData, networkData, timelineData, flaggedData] = await Promise.all([
         apiFetch("/dashboard/summary", {}, token),
-        apiFetch("/dashboard/network?limit=200", {}, token),
+        apiFetch("/dashboard/network?limit=500", {}, token),
         apiFetch("/dashboard/timeline?granularity=day", {}, token),
         apiFetch("/flags/top", {}, token),
       ]);
@@ -250,6 +388,8 @@ function DashboardView({ token }) {
       setTopFlagged(flaggedData);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -257,9 +397,7 @@ function DashboardView({ token }) {
     load();
   }, [token]);
 
-  async function uploadFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function uploadByFile(file) {
     const form = new FormData();
     form.append("file", file);
     try {
@@ -271,101 +409,148 @@ function DashboardView({ token }) {
     }
   }
 
+  const onUploadInput = (event) => {
+    const file = event.target.files?.[0];
+    if (file) uploadByFile(file);
+  };
+
   return (
     <div className="space-y-6">
-      {error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-200">{error}</div> : null}
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total records" value={summary?.total_records ?? "—"} />
-        <StatCard label="Unique A-parties" value={summary?.unique_a_parties ?? "—"} tone="emerald" />
-        <StatCard label="Unique B-parties" value={summary?.unique_b_parties ?? "—"} tone="amber" />
-        <StatCard label="Flagged parties" value={summary?.flagged_parties ?? "—"} tone="red" />
+        {loading ? (
+          <>
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+          </>
+        ) : (
+          <>
+            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#1e40af" />
+            <StatCard label="Unique A-parties" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#1e40af" />
+            <StatCard label="Unique B-parties" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#1e40af" />
+            <StatCard label="Flagged parties" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+          </>
+        )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5 shadow-glow">
-          <div className="mb-4 flex items-center justify-between">
+      <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
+        <section className="card p-5 fade-in">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">A-party ↔ B-party network</h2>
-              <p className="text-sm text-slate-400">Flagged nodes appear in red.</p>
+              <h2 className="text-xl font-bold heading-tight text-slate-900">A-party ↔ B-party Network</h2>
+              <p className="text-sm muted">Zoom with scroll, drag to pan, click top flagged entries to focus nodes.</p>
             </div>
-            <label className="cursor-pointer rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">
+            <label
+              className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm"
+              style={{ backgroundColor: ACCENT }}
+            >
+              <Upload size={16} />
               Upload file
-              <input type="file" accept=".csv,.txt,.json" onChange={uploadFile} className="hidden" />
+              <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
             </label>
           </div>
-          <NetworkGraph nodes={network.nodes} edges={network.edges} />
+          <UploadDropzone onFile={uploadByFile} />
+          <div className="mt-4">
+            {loading ? <Skeleton className="aspect-[16/10] w-full" /> : <NetworkGraph nodes={network.nodes} edges={network.edges} focusedNode={focusedNode} riskLookup={riskLookup} />}
+          </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-          <h2 className="text-lg font-semibold">Parse summary</h2>
+        <section className="card p-5 fade-in">
+          <h2 className="text-xl font-bold heading-tight text-slate-900">Parse Summary</h2>
           {uploadResult ? (
-            <div className="mt-4 space-y-2 text-sm text-slate-300">
-              <p>File: {uploadResult.filename}</p>
-              <p>Total rows: {uploadResult.total_rows}</p>
-              <p>Valid rows: {uploadResult.valid_rows}</p>
-              <p>Errors: {uploadResult.error_rows}</p>
-              <p>Date range: {uploadResult.date_min || "-"} to {uploadResult.date_max || "-"}</p>
+            <div className="mt-4 grid gap-2 text-sm text-slate-700">
+              <p><span className="font-medium">File:</span> {uploadResult.filename}</p>
+              <p><span className="font-medium">Total rows:</span> {uploadResult.total_rows}</p>
+              <p><span className="font-medium">Valid rows:</span> {uploadResult.valid_rows}</p>
+              <p><span className="font-medium">Errors:</span> {uploadResult.error_rows}</p>
+              <p><span className="font-medium">Date range:</span> {uploadResult.date_min || "-"} to {uploadResult.date_max || "-"}</p>
             </div>
           ) : (
-            <p className="mt-4 text-sm text-slate-500">Upload an IPDR file to see parsing details.</p>
+            <p className="mt-3 text-sm muted">Upload an IPDR file to view parser stats.</p>
           )}
+
           <div className="mt-6">
-            <h3 className="mb-3 text-sm font-medium text-slate-300">Top flagged A-parties</h3>
-            <div className="space-y-3">
-              {topFlagged.slice(0, 5).map((row) => (
-                <div key={row.a_party} className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{row.a_party}</span>
-                    <span className={`rounded-full border px-2 py-1 text-xs ${badgeClass(row.risk_level)}`}>
-                      {row.risk_level}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties
-                  </p>
-                </div>
-              ))}
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged A-parties</h3>
+            <div className="mt-3 space-y-3">
+              {loading ? (
+                <>
+                  <Skeleton className="h-20" />
+                  <Skeleton className="h-20" />
+                  <Skeleton className="h-20" />
+                </>
+              ) : (
+                topFlagged.slice(0, 6).map((row) => (
+                  <button
+                    key={row.a_party}
+                    onClick={() => setFocusedNode(row.a_party)}
+                    className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800">{row.a_party}</span>
+                      <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${riskTone(row.risk_level)}`}>{row.risk_level}</span>
+                    </div>
+                    <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties</p>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </section>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+        <section className="card p-5 fade-in">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold">Communication volume over time</h2>
-            <p className="text-sm text-slate-400">Spot spikes in activity quickly.</p>
+            <h2 className="text-xl font-bold heading-tight text-slate-900">Communication Volume Over Time</h2>
+            <p className="text-sm muted">Detect traffic spikes and unusual windows quickly.</p>
           </div>
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={timeline}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="period" tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 12 }} />
-                <Tooltip contentStyle={{ background: "#020617", border: "1px solid #334155", color: "#e2e8f0" }} />
-                <Area type="monotone" dataKey="count" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.15} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {loading ? (
+              <Skeleton className="h-full w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeline}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 12 }} />
+                  <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a" }} />
+                  <Area type="monotone" dataKey="count" stroke={ACCENT} fill={ACCENT} fillOpacity={0.16} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+        <section className="card p-5 fade-in">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold">Risk counts</h2>
-              <p className="text-sm text-slate-400">Low / Medium / High distribution.</p>
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Risk Summary</h2>
+              <p className="text-sm muted">Low / Medium / High flagged parties.</p>
             </div>
             <button
               onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv"))}
-              className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
             >
               Export CSV
             </button>
           </div>
           <div className="mt-4 grid grid-cols-3 gap-3">
-            <StatCard label="Low" value={summary?.risk_counts?.low ?? 0} tone="emerald" />
-            <StatCard label="Medium" value={summary?.risk_counts?.medium ?? 0} tone="amber" />
-            <StatCard label="High" value={summary?.risk_counts?.high ?? 0} tone="red" />
+            {loading ? (
+              <>
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+              </>
+            ) : (
+              <>
+                <StatCard label="Low" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
+                <StatCard label="Medium" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
+                <StatCard label="High" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+              </>
+            )}
           </div>
         </section>
       </div>
@@ -458,154 +643,109 @@ function SearchView({ token }) {
   }
 
   return (
-    <div className="space-y-6">
-      {error ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-200">{error}</div> : null}
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 fade-in">
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      <section className="card p-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number or IP" />
           <input value={form.start_date} onChange={(e) => update("start_date", e.target.value)} type="datetime-local" />
           <input value={form.end_date} onChange={(e) => update("end_date", e.target.value)} type="datetime-local" />
-          <input
-            value={form.session_type}
-            onChange={(e) => update("session_type", e.target.value)}
-            placeholder="Session type"
-          />
-          <input
-            value={form.min_duration}
-            onChange={(e) => update("min_duration", e.target.value)}
-            placeholder="Min duration"
-            type="number"
-          />
-          <input
-            value={form.max_duration}
-            onChange={(e) => update("max_duration", e.target.value)}
-            placeholder="Max duration"
-            type="number"
-          />
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />
-            Flagged only
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />
-            Relevant only
-          </label>
+          <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" />
+          <input value={form.min_duration} onChange={(e) => update("min_duration", e.target.value)} placeholder="Min duration" type="number" />
+          <input value={form.max_duration} onChange={(e) => update("max_duration", e.target.value)} placeholder="Max duration" type="number" />
+          <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />Flagged only</label>
+          <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />Relevant only</label>
           <div className="flex gap-2">
-            <button onClick={() => runSearch(1)} className="rounded-xl bg-cyan-500 px-4 py-2 font-semibold text-slate-950">
-              Search
-            </button>
-            <button onClick={exportCsv} className="rounded-xl border border-slate-700 px-4 py-2 text-slate-200">
-              CSV
-            </button>
+            <button onClick={() => runSearch(1)} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Search</button>
+            <button onClick={exportCsv} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">CSV</button>
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+      <section className="card p-5">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Interactions</h2>
-            <p className="text-sm text-slate-400">{total} rows matched</p>
+            <h2 className="text-xl font-bold heading-tight text-slate-900">Interactions</h2>
+            <p className="text-sm muted">{total} rows matched</p>
           </div>
-          <div className="text-sm text-slate-400">{loading ? "Loading..." : `Page ${page}`}</div>
+          <div className="text-sm muted">{loading ? "Loading..." : `Page ${page}`}</div>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="text-slate-400">
-              <tr>
-                {[
-                  ["a_party", "A-party"],
-                  ["b_party_ip", "B IP"],
-                  ["interaction_count", "Count"],
-                  ["total_duration_sec", "Duration"],
-                  ["first_seen", "First seen"],
-                  ["last_seen", "Last seen"],
-                ].map(([key, label]) => (
-                  <th key={key} className="cursor-pointer border-b border-slate-800 px-3 py-2" onClick={() => toggleSort(key)}>
-                    {label}
-                  </th>
-                ))}
-                <th className="border-b border-slate-800 px-3 py-2">Risk</th>
-                <th className="border-b border-slate-800 px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={`${row.a_party}-${row.b_party_ip}-${row.b_party_number}`} className="border-b border-slate-800/70">
-                  <td className="px-3 py-3">{row.a_party}</td>
-                  <td className="px-3 py-3">{formatValue(row.b_party_ip || row.b_party_number)}</td>
-                  <td className="px-3 py-3">{row.interaction_count}</td>
-                  <td className="px-3 py-3">{Math.round(row.total_duration_sec)}</td>
-                  <td className="px-3 py-3">{row.first_seen}</td>
-                  <td className="px-3 py-3">{row.last_seen}</td>
-                  <td className="px-3 py-3">
-                    <span className={`rounded-full border px-2 py-1 text-xs ${badgeClass(row.risk.level)}`}>{row.risk.level}</span>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex gap-2">
-                      <button onClick={() => openInvestigation(row.a_party)} className="text-cyan-300">
-                        Investigate
-                      </button>
-                      <button onClick={() => exportPdf(row.a_party)} className="text-amber-300">
-                        PDF
-                      </button>
-                    </div>
-                  </td>
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+            <Skeleton className="h-10" />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-slate-600">
+                <tr>
+                  {[["a_party", "A-party"], ["b_party_ip", "B IP"], ["interaction_count", "Count"], ["total_duration_sec", "Duration"], ["first_seen", "First seen"], ["last_seen", "Last seen"]].map(([key, label]) => (
+                    <th key={key} className="cursor-pointer border-b border-slate-200 px-3 py-2" onClick={() => toggleSort(key)}>{label}</th>
+                  ))}
+                  <th className="border-b border-slate-200 px-3 py-2">Risk</th>
+                  <th className="border-b border-slate-200 px-3 py-2">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={`${row.a_party}-${row.b_party_ip}-${row.b_party_number}`} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-3 py-3">{row.a_party}</td>
+                    <td className="px-3 py-3">{formatValue(row.b_party_ip || row.b_party_number)}</td>
+                    <td className="px-3 py-3">{row.interaction_count}</td>
+                    <td className="px-3 py-3">{Math.round(row.total_duration_sec)}</td>
+                    <td className="px-3 py-3">{row.first_seen}</td>
+                    <td className="px-3 py-3">{row.last_seen}</td>
+                    <td className="px-3 py-3"><span className={`rounded-lg border px-2 py-1 text-xs ${riskTone(row.risk.level)}`}>{row.risk.level}</span></td>
+                    <td className="px-3 py-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => openInvestigation(row.a_party)} className="text-sm font-medium" style={{ color: ACCENT }}>Investigate</button>
+                        <button onClick={() => exportPdf(row.a_party)} className="text-sm font-medium text-amber-700">PDF</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="mt-4 flex items-center justify-between">
-          <button disabled={page <= 1} onClick={() => runSearch(page - 1)} className="rounded-lg border border-slate-700 px-3 py-2">
-            Prev
-          </button>
-          <button
-            disabled={page * pageSize >= total}
-            onClick={() => runSearch(page + 1)}
-            className="rounded-lg border border-slate-700 px-3 py-2"
-          >
-            Next
-          </button>
+          <button disabled={page <= 1} onClick={() => runSearch(page - 1)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Prev</button>
+          <button disabled={page * pageSize >= total} onClick={() => runSearch(page + 1)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Next</button>
         </div>
       </section>
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-800 bg-slate-950 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-2xl fade-in">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold">Investigation summary: {selected.a_party}</h3>
-              <button onClick={() => setSelected(null)} className="text-slate-400">
-                Close
-              </button>
+              <h3 className="text-xl font-bold heading-tight text-slate-900">Investigation summary: {selected.a_party}</h3>
+              <button onClick={() => setSelected(null)} className="text-sm muted">Close</button>
             </div>
-            <p className="mt-2 text-sm text-slate-400">
-              Risk: <span className="text-slate-100">{selected.risk.level}</span> ({selected.risk.score})
-            </p>
+            <p className="mt-2 text-sm muted">Risk: <span className="font-semibold text-slate-800">{selected.risk.level}</span> ({selected.risk.score})</p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {selected.flags.map((flag) => (
-                <div key={flag.type} className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-                  <p className="font-medium text-slate-100">{flag.type}</p>
-                  <p className="text-sm text-slate-400">{flag.message}</p>
+                <div key={flag.type} className={`rounded-xl border border-l-4 bg-white p-4 ${riskBorder(flag.severity === "high" ? "High" : flag.severity === "medium" ? "Medium" : "Low")}`}>
+                  <p className="font-semibold text-slate-900">{flag.type}</p>
+                  <p className="text-sm muted">{flag.message}</p>
                 </div>
               ))}
             </div>
             <div className="mt-6 overflow-x-auto">
               <table className="min-w-full text-sm">
-                <thead className="text-slate-400">
+                <thead className="text-slate-600">
                   <tr>
-                    <th className="border-b border-slate-800 px-3 py-2">B-party</th>
-                    <th className="border-b border-slate-800 px-3 py-2">Count</th>
-                    <th className="border-b border-slate-800 px-3 py-2">Duration</th>
-                    <th className="border-b border-slate-800 px-3 py-2">First Seen</th>
-                    <th className="border-b border-slate-800 px-3 py-2">Last Seen</th>
+                    <th className="border-b border-slate-200 px-3 py-2">B-party</th>
+                    <th className="border-b border-slate-200 px-3 py-2">Count</th>
+                    <th className="border-b border-slate-200 px-3 py-2">Duration</th>
+                    <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
+                    <th className="border-b border-slate-200 px-3 py-2">Last Seen</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selected.interactions.map((item) => (
-                    <tr key={`${item.b_party_ip}-${item.b_party_number}`} className="border-b border-slate-800/70">
+                    <tr key={`${item.b_party_ip}-${item.b_party_number}`} className="border-b border-slate-100">
                       <td className="px-3 py-3">{item.b_party_ip || item.b_party_number}</td>
                       <td className="px-3 py-3">{item.interaction_count}</td>
                       <td className="px-3 py-3">{Math.round(item.total_duration_sec)}</td>
@@ -647,7 +787,7 @@ function SettingsView({ token }) {
     }
   }
 
-  if (!settings) return <p className="text-slate-400">Loading settings...</p>;
+  if (!settings) return <Skeleton className="h-56 w-full" />;
 
   const fields = [
     ["night_start_hour", "Night start hour"],
@@ -662,21 +802,21 @@ function SettingsView({ token }) {
   ];
 
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className="card p-6 fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Suspicious activity thresholds</h2>
-          <p className="text-sm text-slate-400">Adjust rule-based detection for the demo.</p>
+          <h2 className="text-xl font-bold heading-tight text-slate-900">Suspicious Activity Thresholds</h2>
+          <p className="text-sm muted">Configure rule-based alerts.</p>
         </div>
-        <button onClick={save} className="rounded-xl bg-cyan-500 px-4 py-2 font-semibold text-slate-950">
+        <button onClick={save} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
           Save
         </button>
       </div>
-      {status ? <p className="mt-3 text-sm text-slate-400">{status}</p> : null}
+      {status ? <p className="mt-3 text-sm muted">{status}</p> : null}
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {fields.map(([key, label]) => (
-          <label key={key} className="space-y-2 text-sm text-slate-300">
-            <span>{label}</span>
+          <label key={key} className="space-y-2 text-sm text-slate-700">
+            <span className="font-medium">{label}</span>
             <input type="number" value={settings[key]} onChange={(e) => update(key, Number(e.target.value))} className="w-full" />
           </label>
         ))}
@@ -685,12 +825,84 @@ function SettingsView({ token }) {
   );
 }
 
+function Shell({ token, username, onLogout }) {
+  const [view, setView] = useState("dashboard");
+  const menu = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "search", label: "Search", icon: Search },
+    { id: "settings", label: "Settings", icon: Settings },
+  ];
+
+  return (
+    <div className="min-h-full bg-slate-50 text-slate-900">
+      <div className="flex min-h-screen">
+        <aside className="hidden w-72 flex-col border-r border-slate-200 bg-slate-100 px-4 py-6 lg:flex">
+          <div className="mb-8 px-2">
+            <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>IPDR Insight</p>
+            <h2 className="mt-2 text-2xl font-bold heading-tight text-slate-900">Investigation Tool</h2>
+          </div>
+          <nav className="space-y-1">
+            {menu.map((item) => {
+              const Icon = item.icon;
+              const active = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setView(item.id)}
+                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "border-blue-700 bg-blue-50 text-blue-800" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="mt-auto pt-6">
+            <button onClick={onLogout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:shadow-sm">
+              <LogOut size={16} />
+              Logout
+            </button>
+          </div>
+        </aside>
+
+        <main className="flex-1">
+          <header className="border-b border-slate-200 bg-white px-4 py-4 lg:px-8">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm muted">Logged in as {username}</p>
+                <h1 className="text-2xl font-bold heading-tight capitalize text-slate-900">{view}</h1>
+              </div>
+              <div className="flex gap-2 lg:hidden">
+                {menu.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setView(item.id)}
+                    className={`rounded-xl px-3 py-2 text-sm ${view === item.id ? "bg-blue-100 text-blue-800" : "bg-white border border-slate-300 text-slate-700"}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          <div className="p-4 lg:p-8">
+            {view === "dashboard" ? <DashboardView token={token} /> : null}
+            {view === "search" ? <SearchView token={token} /> : null}
+            {view === "settings" ? <SettingsView token={token} /> : null}
+          </div>
+
+          <footer className="border-t border-slate-200 bg-white px-4 py-4 text-xs muted lg:px-8">
+            Data is handled per privacy-compliance guidelines for local investigative analysis demos.
+          </footer>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const auth = useAuth();
-
-  if (!auth.token) {
-    return <LoginView onLogin={auth.login} />;
-  }
-
+  if (!auth.token) return <LoginView onLogin={auth.login} />;
   return <Shell token={auth.token} username={auth.username} onLogout={auth.logout} />;
 }
