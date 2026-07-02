@@ -95,13 +95,15 @@ def initialize_db():
 def seed_defaults(conn):
     from passlib.context import CryptContext
 
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    cur = conn.execute("SELECT COUNT(*) AS c FROM users")
-    if cur.fetchone()["c"] == 0:
-        conn.execute(
-            "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-            (DEFAULT_ADMIN_USERNAME, pwd_context.hash(DEFAULT_ADMIN_PASSWORD)),
-        )
+    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+    conn.execute(
+        """
+        INSERT INTO users (username, password_hash)
+        VALUES (?, ?)
+        ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash
+        """,
+        (DEFAULT_ADMIN_USERNAME, pwd_context.hash(DEFAULT_ADMIN_PASSWORD)),
+    )
 
     for key, value in DEFAULT_SETTINGS.items():
         conn.execute(

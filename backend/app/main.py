@@ -32,7 +32,7 @@ from .services import (
 )
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 auth_scheme = HTTPBearer()
 app = FastAPI(title="IPDR Insight API")
 app.add_middleware(
