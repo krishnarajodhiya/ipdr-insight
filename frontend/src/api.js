@@ -1,7 +1,8 @@
 import { demo } from "./demoApi";
 
-const API_URL = import.meta.env.VITE_API_URL || "";
-const USE_DEMO = !API_URL;
+const DEFAULT_API_URL = "https://ipdr-insight-1.onrender.com";
+const API_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
+const USE_DEMO = import.meta.env.DEV && !import.meta.env.VITE_API_URL;
 
 export function apiUrl(path) {
   return USE_DEMO ? path : `${API_URL}${path}`;
