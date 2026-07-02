@@ -50,6 +50,8 @@ class SettingsPayload(BaseModel):
     distinct_window_minutes: int = Field(60, ge=5)
     distinct_b_threshold: int = Field(12, ge=1)
     shared_bparty_threshold: int = Field(6, ge=1)
+    device_churn_imei_threshold: int = Field(2, ge=1)
+    shared_imei_party_threshold: int = Field(1, ge=1)
     graph_limit: int = Field(200, ge=25, le=1000)
 
 

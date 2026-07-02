@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
+import { // This list will shrink as components are moved
   forceCenter,
   forceCollide,
   forceLink,
@@ -11,7 +11,7 @@ import {
 } from "d3-force";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  AlertTriangle,
+  AlertTriangle, // This list will shrink as components are moved
   Database,
   LayoutDashboard,
   LogOut,
@@ -24,9 +24,13 @@ import {
   ZoomOut,
   RefreshCw,
 } from "lucide-react";
+
+import { LoginView } from "./components/LoginView"; // Example import
+import { useAuth } from "./hooks/useAuth";
+import { CyberBackdrop } from "./components/CyberBackdrop";
+
 import { apiFetch, downloadBlob } from "./api";
 
-const STORAGE_KEY = "ipdr_insight_token";
 const ACCENT = "#1e40af";
 const BOOT_MESSAGES = [
   "Authenticating session...",
@@ -52,123 +56,8 @@ function riskBorder(level) {
   return "border-l-slate-300";
 }
 
-function useAuth() {
-  const [token, setToken] = useState(localStorage.getItem(STORAGE_KEY) || "");
-  const [username, setUsername] = useState("admin");
-
-  const login = (payload) => {
-    localStorage.setItem(STORAGE_KEY, payload.access_token);
-    setToken(payload.access_token);
-    setUsername(payload.username);
-  };
-
-  const logout = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setToken("");
-    setUsername("");
-  };
-
-  return { token, username, login, logout };
-}
-
 function Skeleton({ className }) {
   return <div className={`skeleton rounded-xl ${className}`} />;
-}
-
-function CyberBackdrop() {
-  return (
-    <>
-      <div className="auth-bg-gradient" />
-      <div className="auth-bg-grid" />
-      <svg className="auth-bg-network" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden>
-        <g>
-          <line x1="120" y1="140" x2="380" y2="240" />
-          <line x1="380" y1="240" x2="620" y2="180" />
-          <line x1="620" y1="180" x2="860" y2="280" />
-          <line x1="860" y1="280" x2="1040" y2="220" />
-          <line x1="260" y1="430" x2="520" y2="360" />
-          <line x1="520" y1="360" x2="740" y2="470" />
-          <line x1="740" y1="470" x2="980" y2="390" />
-          <line x1="210" y1="640" x2="470" y2="560" />
-          <line x1="470" y1="560" x2="690" y2="640" />
-          <line x1="690" y1="640" x2="930" y2="580" />
-          <circle cx="120" cy="140" r="3" />
-          <circle cx="380" cy="240" r="3.5" />
-          <circle cx="620" cy="180" r="3" />
-          <circle cx="860" cy="280" r="3.5" />
-          <circle cx="1040" cy="220" r="3" />
-          <circle cx="260" cy="430" r="3.2" />
-          <circle cx="520" cy="360" r="3.5" />
-          <circle cx="740" cy="470" r="3.2" />
-          <circle cx="980" cy="390" r="3" />
-          <circle cx="210" cy="640" r="3" />
-          <circle cx="470" cy="560" r="3.5" />
-          <circle cx="690" cy="640" r="3.2" />
-          <circle cx="930" cy="580" r="3" />
-        </g>
-      </svg>
-    </>
-  );
-}
-
-function LoginView({ onLogin }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const result = await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
-      onLogin(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="relative min-h-full overflow-hidden px-4">
-      <CyberBackdrop />
-      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
-        <div className="w-full rounded-2xl border border-white/40 bg-white/92 p-8 shadow-2xl backdrop-blur-md fade-in">
-          <div className="mb-6 text-center">
-            <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
-              <Network size={20} />
-            </div>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.26em] text-blue-800">IPDR INSIGHT</p>
-            <h1 className="mt-2 text-3xl font-bold heading-tight text-slate-900">Secure Access</h1>
-            <p className="mt-2 text-sm muted">Investigation dashboard authentication</p>
-          </div>
-          <form onSubmit={submit} className="space-y-4">
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              type="password"
-              className="w-full"
-            />
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
-            <button
-              disabled={loading}
-              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
-              style={{ backgroundColor: ACCENT }}
-            >
-              {loading ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function BootScreen({ message, progress }) {
@@ -716,7 +605,7 @@ function SearchView({ token }) {
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
       <section className="card p-5">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number or IP" />
+          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number, IP, IMEI or Cell-ID" />
           <input value={form.start_date} onChange={(e) => update("start_date", e.target.value)} type="datetime-local" />
           <input value={form.end_date} onChange={(e) => update("end_date", e.target.value)} type="datetime-local" />
           <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" />
@@ -801,6 +690,37 @@ function SearchView({ token }) {
                 </div>
               ))}
             </div>
+            {selected.device_profile && (selected.device_profile.imeis?.length || selected.device_profile.imsis?.length || selected.device_profile.cell_ids?.length) ? (
+              <div className="mt-6">
+                <h4 className="text-sm font-semibold text-slate-900">Device &amp; location profile</h4>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-slate-600">
+                      <tr>
+                        <th className="border-b border-slate-200 px-3 py-2">Type</th>
+                        <th className="border-b border-slate-200 px-3 py-2">Value</th>
+                        <th className="border-b border-slate-200 px-3 py-2">Sessions</th>
+                        <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
+                        <th className="border-b border-slate-200 px-3 py-2">Last Seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[["IMEI", selected.device_profile.imeis], ["IMSI", selected.device_profile.imsis], ["Cell ID", selected.device_profile.cell_ids]].flatMap(([label, items]) =>
+                        (items || []).slice(0, 10).map((item) => (
+                          <tr key={`${label}-${item.value}`} className="border-b border-slate-100">
+                            <td className="px-3 py-2">{label}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{item.value}</td>
+                            <td className="px-3 py-2">{item.count}</td>
+                            <td className="px-3 py-2">{item.first_seen}</td>
+                            <td className="px-3 py-2">{item.last_seen}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-6 overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="text-slate-600">
@@ -867,6 +787,8 @@ function SettingsView({ token }) {
     ["distinct_window_minutes", "Distinct B-party window (min)"],
     ["distinct_b_threshold", "Distinct B-party threshold"],
     ["shared_bparty_threshold", "Shared B-party threshold"],
+    ["device_churn_imei_threshold", "IMEIs per number threshold"],
+    ["shared_imei_party_threshold", "Numbers per IMEI threshold"],
     ["graph_limit", "Graph record limit"],
   ];
 

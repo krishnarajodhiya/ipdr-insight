@@ -21,5 +21,7 @@ DEFAULT_SETTINGS = {
     "distinct_window_minutes": 60,
     "distinct_b_threshold": 12,
     "shared_bparty_threshold": 6,
+    "device_churn_imei_threshold": 2,
+    "shared_imei_party_threshold": 1,
     "graph_limit": 200,
 }

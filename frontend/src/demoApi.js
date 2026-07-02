@@ -147,10 +147,40 @@ function buildRecords() {
 
 const records = buildRecords();
 
+// Assign a stable device identity (IMEI/IMSI/home tower) per A-party, matching Indian TSP IPDR exports
+const deviceByA = new Map();
+records.forEach((record) => {
+  if (!deviceByA.has(record.a_party)) {
+    deviceByA.set(record.a_party, {
+      imei: `35${String(Math.floor(random() * 1e13)).padStart(13, "0")}`,
+      imsi: `404${String(10 + Math.floor(random() * 89))}${String(Math.floor(random() * 1e10)).padStart(10, "0")}`,
+      cell_id: `${1000 + Math.floor(random() * 9000)}-${10000 + Math.floor(random() * 90000)}`,
+    });
+  }
+  Object.assign(record, deviceByA.get(record.a_party));
+});
+
+function buildDeviceProfile(rows) {
+  const collect = (field) => {
+    const seen = new Map();
+    rows.forEach((record) => {
+      const value = String(record[field] || "").trim();
+      if (!value) return;
+      const entry = seen.get(value) || { value, count: 0, first_seen: record.timestamp, last_seen: record.timestamp };
+      entry.count += 1;
+      if (record.timestamp < entry.first_seen) entry.first_seen = record.timestamp;
+      if (record.timestamp > entry.last_seen) entry.last_seen = record.timestamp;
+      seen.set(value, entry);
+    });
+    return [...seen.values()].sort((a, b) => b.count - a.count);
+  };
+  return { imeis: collect("imei"), imsis: collect("imsi"), cell_ids: collect("cell_id") };
+}
+
 function recordMatchesFilters(record, filters = {}) {
   if (filters.query) {
     const q = filters.query.toLowerCase();
-    const hay = [record.a_party, record.b_party_ip, record.b_party_number, record.session_type, record.port]
+    const hay = [record.a_party, record.b_party_ip, record.b_party_number, record.session_type, record.port, record.imei, record.imsi, record.cell_id]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -454,6 +484,7 @@ const demo = {
       a_party: aParty,
       risk: flagged.riskByA[aParty] || { score: 0, level: "Low" },
       flags: flagged.flagsByA.get(aParty) || [],
+      device_profile: buildDeviceProfile(rows),
       interactions: aggregateInteractions(rows).map((item) => ({
         ...item,
         risk: flagged.riskByA[item.a_party] || { score: 0, level: "Low" },

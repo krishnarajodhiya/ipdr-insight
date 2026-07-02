@@ -73,6 +73,9 @@ def initialize_db():
                 port TEXT,
                 data_volume REAL,
                 session_type TEXT,
+                imei TEXT,
+                imsi TEXT,
+                cell_id TEXT,
                 raw_json TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(upload_id) REFERENCES uploads(id) ON DELETE SET NULL
@@ -87,9 +90,64 @@ def initialize_db():
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(upload_id) REFERENCES uploads(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Open',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS case_parties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER NOT NULL,
+                party_value TEXT NOT NULL,
+                party_type TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(case_id, party_value, party_type),
+                FOREIGN KEY(case_id) REFERENCES cases(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS case_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_id INTEGER NOT NULL,
+                note TEXT NOT NULL,
+                created_by TEXT DEFAULT 'investigator',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(case_id) REFERENCES cases(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS manual_flags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_value TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                investigator TEXT DEFAULT 'investigator',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS blacklist_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_value TEXT NOT NULL UNIQUE,
+                target_type TEXT NOT NULL,
+                label TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
+        migrate_schema(conn)
         seed_defaults(conn)
+
+
+def migrate_schema(conn):
+    """Idempotent in-place upgrades for databases created before new columns existed."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(records)").fetchall()}
+    for column in ("imei", "imsi", "cell_id"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE records ADD COLUMN {column} TEXT")
 
 
 def seed_defaults(conn):
@@ -109,6 +167,39 @@ def seed_defaults(conn):
         conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
             (key, json.dumps(value)),
+        )
+
+    seed_blacklist(conn)
+
+
+def seed_blacklist(conn):
+    seed_entries = [
+        ("203.0.113.10", "ip", "Known VPN exit node", "Previously linked to credential stuffing campaigns"),
+        ("203.0.113.22", "ip", "Fraud relay endpoint", "Observed in prior telecom fraud investigation"),
+        ("203.0.113.35", "ip", "Command-and-control host", "Suspicious beacon traffic pattern in archived case"),
+        ("198.51.100.44", "ip", "TOR bridge indicator", "Multiple anonymized routing traces"),
+        ("198.51.100.77", "ip", "Malware staging server", "Used for payload distribution in historical incident"),
+        ("198.51.100.133", "ip", "Phishing infrastructure", "Domain and IP tied to smishing operation"),
+        ("185.17.24.9", "ip", "Darknet gateway node", "Cross-border cybercrime intel match"),
+        ("45.155.205.12", "ip", "Fraud call redirector", "High-risk rerouting endpoint"),
+        ("91.214.124.8", "ip", "Compromised proxy network", "Known abuse of residential proxy pool"),
+        ("103.77.192.61", "ip", "Data exfiltration proxy", "Repeated high-volume short sessions"),
+        ("8000099000", "number", "Fraud ring handset", "Linked to synthetic identity scam chain"),
+        ("8000002000", "number", "Beacon test number", "Used for repeated short ping-like calls"),
+        ("8000010007", "number", "Coordinator handset", "Appeared in prior narcotics coordination case"),
+        ("919999000111", "number", "Spoofing origin line", "Carrier report flagged repeated spoofing"),
+        ("918888123456", "number", "Known mule contact", "Financial mule recruitment hotline"),
+        ("917777654321", "number", "Bulk scam caller", "Repeated telecom complaint records"),
+        ("8000001000", "number", "Dark market contact", "Mapped in prior cyber-intel bulletin"),
+        ("912345678901", "number", "Compromised bot control", "Known botnet control number"),
+    ]
+    for value, target_type, label, reason in seed_entries:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO blacklist_entries (target_value, target_type, label, reason)
+            VALUES (?, ?, ?, ?)
+            """,
+            (value, target_type, label, reason),
         )
 
 
@@ -134,7 +225,9 @@ def parse_datetime(value):
     try:
         from dateutil import parser as dtparser
 
-        dt = dtparser.parse(text, fuzzy=True)
+        # dayfirst=True: Indian TSP exports use DD/MM/YYYY (e.g. 28/06/2026).
+        # Unambiguous ISO formats (YYYY-MM-DD) are still parsed correctly.
+        dt = dtparser.parse(text, fuzzy=True, dayfirst=True)
         if dt.tzinfo is not None:
             dt = dt.astimezone().replace(tzinfo=None)
         return dt.replace(microsecond=0).isoformat(sep=" ")
