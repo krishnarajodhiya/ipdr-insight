@@ -2,14 +2,13 @@ import csv
 import io
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from .config import DEFAULT_SETTINGS, SAMPLE_DATA_PATH
+from .config import DEFAULT_SETTINGS
 from .db import get_setting, parse_datetime
 
 
@@ -394,6 +393,20 @@ def aggregate_interactions(rows):
             }
         )
     return results
+
+
+def is_relevant_record(record: dict[str, Any]) -> bool:
+    b_id = (record.get("b_party_ip") or "").strip() or (record.get("b_party_number") or "").strip()
+    if not b_id:
+        return False
+    duration = float(record.get("duration_sec") or 0)
+    if duration <= 0:
+        return False
+    noise_session_types = {"heartbeat", "keepalive", "probe", "healthcheck", "background_sync"}
+    session_type = str(record.get("session_type") or "").strip().lower()
+    if session_type in noise_session_types:
+        return False
+    return True
 
 
 def record_matches_filters(record, filters):

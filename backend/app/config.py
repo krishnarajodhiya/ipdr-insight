@@ -1,14 +1,16 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 ROOT_DIR = BASE_DIR.parent
 DB_PATH = BASE_DIR / "ipdr_insight.db"
 SAMPLE_DATA_PATH = ROOT_DIR / "sample_data" / "sample_ipdr_data.csv"
-SECRET_KEY = "ipdr-insight-demo-secret"
+SECRET_KEY = os.getenv("SECRET_KEY", "ipdr-insight-demo-secret")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60
-DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin123"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+DEFAULT_ADMIN_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin123")
+CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
 
 DEFAULT_SETTINGS = {
     "night_start_hour": 0,

@@ -167,6 +167,14 @@ function recordMatchesFilters(record, filters = {}) {
   return true;
 }
 
+function isRelevantRecord(record) {
+  const bId = (record.b_party_ip || "").trim() || (record.b_party_number || "").trim();
+  if (!bId) return false;
+  if (Number(record.duration_sec || 0) <= 0) return false;
+  const noiseTypes = new Set(["heartbeat", "keepalive", "probe", "healthcheck", "background_sync"]);
+  return !noiseTypes.has(String(record.session_type || "").toLowerCase());
+}
+
 function computeFlags(data) {
   const byA = new Map();
   const byB = new Map();
@@ -400,6 +408,7 @@ const demo = {
   async search(query = {}) {
     const flagged = computeFlags(records);
     let items = filterRecords(query);
+    if (query.relevant_only === "true" || query.relevant_only === true) items = items.filter(isRelevantRecord);
     if (query.flagged_only) items = items.filter((r) => flagged.riskByA[r.a_party]);
     items = items.map((r) => ({
       ...r,
@@ -414,6 +423,7 @@ const demo = {
   async interactions(query = {}) {
     const flagged = computeFlags(records);
     let rows = filterRecords(query);
+    if (query.relevant_only === "true" || query.relevant_only === true) rows = rows.filter(isRelevantRecord);
     if (query.a_party) rows = rows.filter((r) => r.a_party === query.a_party);
     if (query.b_party) rows = rows.filter((r) => (r.b_party_ip || r.b_party_number) === query.b_party);
     if (query.flagged_only) rows = rows.filter((r) => flagged.riskByA[r.a_party]);

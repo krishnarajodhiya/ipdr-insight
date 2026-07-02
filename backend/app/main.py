@@ -1,31 +1,29 @@
 import csv
 import io
 import json
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timedelta
 
 import jwt
-import pandas as pd
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from pydantic import BaseModel
 
-from .config import ALGORITHM, DEFAULT_ADMIN_USERNAME, SAMPLE_DATA_PATH, SECRET_KEY
-from .db import connect, initialize_db, iso_now, row_to_dict, transaction
-from .schemas import InvestigationRequest, LoginRequest, SettingsPayload, TokenResponse, UploadSummary
+from .config import ACCESS_TOKEN_EXPIRE_MINUTES, ALGORITHM, CORS_ORIGINS, SAMPLE_DATA_PATH, SECRET_KEY
+from .db import connect, initialize_db, iso_now, transaction
+from .schemas import LoginRequest, SettingsPayload, TokenResponse, UploadSummary
 from .services import (
     aggregate_interactions,
     build_network,
     compute_flags,
     fetch_all_records,
     import_records,
+    is_relevant_record,
     load_rows_from_upload,
     parse_investigation_rows,
     record_matches_filters,
@@ -37,7 +35,7 @@ auth_scheme = HTTPBearer()
 app = FastAPI(title="IPDR Insight API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS if CORS_ORIGINS else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,7 +43,12 @@ app.add_middleware(
 
 
 def create_token(username: str) -> str:
-    payload = {"sub": username, "iat": int(datetime.utcnow().timestamp())}
+    now = datetime.utcnow()
+    payload = {
+        "sub": username,
+        "iat": now,
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -169,6 +172,7 @@ def search_records(
     min_duration: float | None = None,
     max_duration: float | None = None,
     session_type: str | None = None,
+    relevant_only: bool = False,
     flagged_only: bool = False,
     user=Depends(get_current_user),
 ):
@@ -185,6 +189,8 @@ def search_records(
         "session_type": session_type,
     }
     filtered = [r for r in records if record_matches_filters(r, filters)]
+    if relevant_only:
+        filtered = [r for r in filtered if is_relevant_record(r)]
     if flagged_only:
         filtered = [r for r in filtered if r["a_party"] in flags["risk_by_a_party"]]
 
@@ -217,6 +223,7 @@ def interactions(
     min_duration: float | None = None,
     max_duration: float | None = None,
     session_type: str | None = None,
+    relevant_only: bool = False,
     flagged_only: bool = False,
     page: int = 1,
     page_size: int = 25,
@@ -236,6 +243,8 @@ def interactions(
         "session_type": session_type,
     }
     rows = [r for r in rows if record_matches_filters(r, filters)]
+    if relevant_only:
+        rows = [r for r in rows if is_relevant_record(r)]
     if a_party:
         rows = [r for r in rows if r["a_party"] == a_party]
     if b_party:
@@ -305,6 +314,7 @@ def export_csv(
     min_duration: float | None = None,
     max_duration: float | None = None,
     session_type: str | None = None,
+    relevant_only: bool = False,
     flagged_only: bool = False,
     user=Depends(get_current_user),
 ):
@@ -320,6 +330,8 @@ def export_csv(
         "session_type": session_type,
     }
     rows = [r for r in rows if record_matches_filters(r, filters)]
+    if relevant_only:
+        rows = [r for r in rows if is_relevant_record(r)]
     if flagged_only:
         rows = [r for r in rows if r["a_party"] in flags["risk_by_a_party"]]
     if not rows:

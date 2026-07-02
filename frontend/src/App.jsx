@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { apiFetch, apiUrl, downloadBlob } from "./api";
+import { apiFetch, downloadBlob } from "./api";
 
 const STORAGE_KEY = "ipdr_insight_token";
 
@@ -381,6 +381,7 @@ function SearchView({ token }) {
     min_duration: "",
     max_duration: "",
     session_type: "",
+    relevant_only: true,
     flagged_only: false,
   });
   const [rows, setRows] = useState([]);
@@ -392,7 +393,6 @@ function SearchView({ token }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
-  const [summary, setSummary] = useState(null);
 
   async function runSearch(nextPage = 1) {
     setLoading(true);
@@ -410,7 +410,6 @@ function SearchView({ token }) {
       setRows(result.items);
       setTotal(result.total);
       setPage(result.page);
-      setSummary(result);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -486,6 +485,10 @@ function SearchView({ token }) {
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />
             Flagged only
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />
+            Relevant only
           </label>
           <div className="flex gap-2">
             <button onClick={() => runSearch(1)} className="rounded-xl bg-cyan-500 px-4 py-2 font-semibold text-slate-950">

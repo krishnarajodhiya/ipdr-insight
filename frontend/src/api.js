@@ -4,6 +4,10 @@ const DEFAULT_API_URL = "https://ipdr-insight-1.onrender.com";
 const API_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 const USE_DEMO = import.meta.env.DEV && !import.meta.env.VITE_API_URL;
 
+function queryParams(path) {
+  return Object.fromEntries(new URLSearchParams(path.split("?")[1] || ""));
+}
+
 export function apiUrl(path) {
   return USE_DEMO ? path : `${API_URL}${path}`;
 }
@@ -14,36 +18,15 @@ export async function apiFetch(path, options = {}, token) {
     if (path === "/auth/login") return demo.login(JSON.parse(options.body || "{}"));
     if (path === "/auth/me") return demo.me();
     if (path.startsWith("/dashboard/summary")) return demo.summary();
-    if (path.startsWith("/dashboard/network")) {
-      const params = new URLSearchParams(path.split("?")[1] || "");
-      return demo.network(Number(params.get("limit") || 200));
-    }
-    if (path.startsWith("/dashboard/timeline")) {
-      const params = new URLSearchParams(path.split("?")[1] || "");
-      return demo.timeline(params.get("granularity") || "day");
-    }
+    if (path.startsWith("/dashboard/network")) return demo.network(Number(queryParams(path).limit || 200));
+    if (path.startsWith("/dashboard/timeline")) return demo.timeline(queryParams(path).granularity || "day");
     if (path.startsWith("/flags/top")) return demo.topFlagged();
-    if (path.startsWith("/records/search")) {
-      const params = Object.fromEntries(new URLSearchParams(path.split("?")[1] || ""));
-      return demo.search(params);
-    }
-    if (path.startsWith("/interactions")) {
-      const params = Object.fromEntries(new URLSearchParams(path.split("?")[1] || ""));
-      return demo.interactions(params);
-    }
-    if (path.startsWith("/settings")) {
-      const params = JSON.parse(options.body || "null");
-      return demo.settings(method, params);
-    }
+    if (path.startsWith("/records/search")) return demo.search(queryParams(path));
+    if (path.startsWith("/interactions")) return demo.interactions(queryParams(path));
+    if (path.startsWith("/settings")) return demo.settings(method, JSON.parse(options.body || "null"));
     if (path.startsWith("/investigation/")) return demo.investigation(decodeURIComponent(path.split("/").pop() || ""));
-    if (path.startsWith("/export/csv")) {
-      const params = Object.fromEntries(new URLSearchParams(path.split("?")[1] || ""));
-      return demo.exportCsv(params);
-    }
-    if (path.startsWith("/export/pdf")) {
-      const params = new URLSearchParams(path.split("?")[1] || "");
-      return demo.exportPdf(params.get("query") || "");
-    }
+    if (path.startsWith("/export/csv")) return demo.exportCsv(queryParams(path));
+    if (path.startsWith("/export/pdf")) return demo.exportPdf(queryParams(path).query || "");
     if (path.startsWith("/upload")) return demo.upload(options.body);
   }
 
@@ -69,9 +52,8 @@ export async function apiFetch(path, options = {}, token) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) return response.json();
     return response.blob();
-  } catch (error) {
-    if (USE_DEMO) throw error;
-    throw new Error("Backend unreachable. Set VITE_API_URL or deploy the backend.");
+  } catch {
+    throw new Error("Backend unreachable. Check VITE_API_URL and backend deployment.");
   }
 }
 
