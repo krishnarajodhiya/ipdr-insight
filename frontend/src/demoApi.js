@@ -40,6 +40,35 @@ const settings = {
   graph_limit: 200,
 };
 
+let blacklistEntries = [
+  { id: 1, value: "198.51.100.77", value_type: "ip", label: "Known VPN exit node used in prior cybercrime case", created_at: "2026-06-30 09:00:00" },
+  { id: 2, value: "203.0.113.90", value_type: "ip", label: "Previously linked to fraud ring command host", created_at: "2026-06-30 09:00:00" },
+  { id: 3, value: "203.0.113.200", value_type: "ip", label: "Proxy endpoint associated with credential theft", created_at: "2026-06-30 09:00:00" },
+  { id: 4, value: "198.51.100.14", value_type: "ip", label: "Disposable infrastructure used for phishing delivery", created_at: "2026-06-30 09:00:00" },
+  { id: 5, value: "198.51.100.24", value_type: "ip", label: "Suspicious relay observed in abuse reports", created_at: "2026-06-30 09:00:00" },
+  { id: 6, value: "198.51.100.29", value_type: "ip", label: "Botnet staging server from prior investigation", created_at: "2026-06-30 09:00:00" },
+  { id: 7, value: "10.10.10.10", value_type: "ip", label: "Known malware C2 test fixture", created_at: "2026-06-30 09:00:00" },
+  { id: 8, value: "172.16.200.15", value_type: "ip", label: "Residential proxy node tied to account takeover", created_at: "2026-06-30 09:00:00" },
+  { id: 9, value: "8000001000", value_type: "number", label: "Caller ID tied to harassment complaint", created_at: "2026-06-30 09:00:00" },
+  { id: 10, value: "8000002000", value_type: "number", label: "Number used in prior extortion attempt", created_at: "2026-06-30 09:00:00" },
+  { id: 11, value: "8000099000", value_type: "number", label: "Disposal SIM linked to coordinated fraud", created_at: "2026-06-30 09:00:00" },
+  { id: 12, value: "9177000001", value_type: "number", label: "Previously seen in late-night burst activity", created_at: "2026-06-30 09:00:00" },
+  { id: 13, value: "9177000002", value_type: "number", label: "Short-call relay number in prior telecom case", created_at: "2026-06-30 09:00:00" },
+  { id: 14, value: "9177000003", value_type: "number", label: "High fan-out number flagged by partners", created_at: "2026-06-30 09:00:00" },
+  { id: 15, value: "9199000004", value_type: "number", label: "Suspected mule line used for laundering support", created_at: "2026-06-30 09:00:00" },
+  { id: 16, value: "9199000005", value_type: "number", label: "Blacklisted outreach number from spam ring", created_at: "2026-06-30 09:00:00" },
+  { id: 17, value: "9199000006", value_type: "number", label: "SIM used for repeated OTP interception", created_at: "2026-06-30 09:00:00" },
+  { id: 18, value: "192.0.2.250", value_type: "ip", label: "Known bad IP from demo threat feed", created_at: "2026-06-30 09:00:00" },
+];
+
+let cases = [];
+let caseParties = [];
+let caseNotes = [];
+let nextCaseId = 1;
+let nextCaseNoteId = 1;
+let nextCasePartyId = 1;
+let nextBlacklistId = 19;
+
 function buildRecords() {
   const rows = [];
   const base = new Date("2026-06-24T08:00:00");
@@ -147,40 +176,10 @@ function buildRecords() {
 
 const records = buildRecords();
 
-// Assign a stable device identity (IMEI/IMSI/home tower) per A-party, matching Indian TSP IPDR exports
-const deviceByA = new Map();
-records.forEach((record) => {
-  if (!deviceByA.has(record.a_party)) {
-    deviceByA.set(record.a_party, {
-      imei: `35${String(Math.floor(random() * 1e13)).padStart(13, "0")}`,
-      imsi: `404${String(10 + Math.floor(random() * 89))}${String(Math.floor(random() * 1e10)).padStart(10, "0")}`,
-      cell_id: `${1000 + Math.floor(random() * 9000)}-${10000 + Math.floor(random() * 90000)}`,
-    });
-  }
-  Object.assign(record, deviceByA.get(record.a_party));
-});
-
-function buildDeviceProfile(rows) {
-  const collect = (field) => {
-    const seen = new Map();
-    rows.forEach((record) => {
-      const value = String(record[field] || "").trim();
-      if (!value) return;
-      const entry = seen.get(value) || { value, count: 0, first_seen: record.timestamp, last_seen: record.timestamp };
-      entry.count += 1;
-      if (record.timestamp < entry.first_seen) entry.first_seen = record.timestamp;
-      if (record.timestamp > entry.last_seen) entry.last_seen = record.timestamp;
-      seen.set(value, entry);
-    });
-    return [...seen.values()].sort((a, b) => b.count - a.count);
-  };
-  return { imeis: collect("imei"), imsis: collect("imsi"), cell_ids: collect("cell_id") };
-}
-
 function recordMatchesFilters(record, filters = {}) {
   if (filters.query) {
     const q = filters.query.toLowerCase();
-    const hay = [record.a_party, record.b_party_ip, record.b_party_number, record.session_type, record.port, record.imei, record.imsi, record.cell_id]
+    const hay = [record.a_party, record.b_party_ip, record.b_party_number, record.session_type, record.port]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -205,17 +204,68 @@ function isRelevantRecord(record) {
   return !noiseTypes.has(String(record.session_type || "").toLowerCase());
 }
 
+function subjectType(subject) {
+  if (String(subject).includes(":") || String(subject).split(".").length === 4) return "ip";
+  if (/^\d+$/.test(String(subject))) return "number";
+  return "unknown";
+}
+
+function getSubjectValue(record) {
+  return (record.b_party_ip || record.b_party_number || "").trim();
+}
+
+function relatedRecordsForSubject(subject) {
+  return records.filter((record) => record.a_party === subject || getSubjectValue(record) === subject);
+}
+
+function buildPartyProfile(subject, flagged) {
+  const related = relatedRecordsForSubject(subject);
+  const risk = flagged.riskByA[subject] || { score: 0, level: "Low" };
+  const blacklistMatches = flagged.blacklistMatchesByA.get(subject) || [];
+  return {
+    subject,
+    subject_type: subjectType(subject),
+    risk,
+    status: blacklistMatches.length ? "Blacklist Match" : risk.score > 0 ? "Flagged" : "Clear",
+    flags: flagged.flagsByA.get(subject) || [],
+    risk_details: flagged.riskDetailsByA.get(subject) || [],
+    blacklist_matches: blacklistMatches,
+    interaction_count: related.length,
+    records: related,
+  };
+}
+
 function computeFlags(data) {
   const byA = new Map();
   const byB = new Map();
   const out = [];
   const riskPoints = new Map();
   const flagsByA = new Map();
+  const riskDetailsByA = new Map();
+  const blacklistMatchesByA = new Map();
+  const blacklistLookup = new Map(blacklistEntries.map((entry) => [entry.value, entry]));
 
   const isNight = (hour) => {
     const { night_start_hour: start, night_end_hour: end } = settings;
     if (start === end) return true;
     return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  };
+
+  const pushFlag = (aParty, flag, points) => {
+    if (!flagsByA.has(aParty)) flagsByA.set(aParty, []);
+    if (!riskDetailsByA.has(aParty)) riskDetailsByA.set(aParty, []);
+    flagsByA.get(aParty).push(flag);
+    riskDetailsByA.get(aParty).push({
+      type: flag.type,
+      message: flag.message,
+      severity: flag.severity,
+      points,
+      source: flag.source || "auto",
+      label: flag.label,
+      value: flag.value,
+      value_type: flag.value_type,
+    });
+    riskPoints.set(aParty, (riskPoints.get(aParty) || 0) + points);
   };
 
   data.forEach((record) => {
@@ -228,15 +278,9 @@ function computeFlags(data) {
   });
 
   for (const [aParty, items] of byA.entries()) {
-    const pushFlag = (flag, points) => {
-      if (!flagsByA.has(aParty)) flagsByA.set(aParty, []);
-      flagsByA.get(aParty).push(flag);
-      riskPoints.set(aParty, (riskPoints.get(aParty) || 0) + points);
-    };
-
     const nightCount = items.filter((r) => r.dt && isNight(r.dt.getHours())).length;
     if (nightCount > settings.night_frequency_threshold) {
-      pushFlag({ type: "night_activity", message: `${nightCount} interactions between 00:00 and 04:00`, severity: "medium", count: nightCount }, 1);
+      pushFlag(aParty, { type: "night_activity", message: `${nightCount} interactions between 00:00 and 04:00`, severity: "medium", count: nightCount, source: "auto" }, 1);
     }
 
     const short = new Map();
@@ -245,7 +289,7 @@ function computeFlags(data) {
     });
     const topShort = [...short.entries()].sort((a, b) => b[1] - a[1])[0];
     if (topShort && topShort[1] > settings.short_duration_repeat_threshold) {
-      pushFlag({ type: "short_repeated_sessions", message: `${topShort[1]} short sessions with ${topShort[0]}`, severity: "high", count: topShort[1] }, 2);
+      pushFlag(aParty, { type: "short_repeated_sessions", message: `${topShort[1]} short sessions with ${topShort[0]}`, severity: "high", count: topShort[1], source: "auto" }, 2);
     }
 
     const sorted = [...items].sort((a, b) => a.dt - b.dt);
@@ -253,9 +297,31 @@ function computeFlags(data) {
       const end = new Date(current.dt.getTime() + settings.distinct_window_minutes * 60000);
       const distinct = new Set(items.filter((r) => r.dt && r.dt >= current.dt && r.dt <= end).map((r) => r.b_id));
       if (distinct.size > settings.distinct_b_threshold) {
-        pushFlag({ type: "many_distinct_b_parties", message: `${distinct.size} distinct B-parties within ${settings.distinct_window_minutes} minutes`, severity: "high", count: distinct.size }, 2);
+        pushFlag(aParty, { type: "many_distinct_b_parties", message: `${distinct.size} distinct B-parties within ${settings.distinct_window_minutes} minutes`, severity: "high", count: distinct.size, source: "auto" }, 2);
         break;
       }
+    }
+
+    for (const item of items) {
+      const match = blacklistLookup.get(item.b_id);
+      if (!match) continue;
+      if (!blacklistMatchesByA.has(aParty)) blacklistMatchesByA.set(aParty, []);
+      if (blacklistMatchesByA.get(aParty).some((entry) => entry.value === match.value)) continue;
+      blacklistMatchesByA.get(aParty).push({ value: match.value, value_type: match.value_type, label: match.label, message: `Matched blacklisted ${match.value_type} (${match.label})` });
+      pushFlag(
+        aParty,
+        {
+          type: "blacklist_match",
+          message: `Matched blacklisted ${match.value_type} (${match.label})`,
+          severity: "high",
+          count: 1,
+          source: "blacklist",
+          label: match.label,
+          value: match.value,
+          value_type: match.value_type,
+        },
+        5
+      );
     }
   }
 
@@ -264,21 +330,14 @@ function computeFlags(data) {
     if (distinctA.size > settings.shared_bparty_threshold) {
       for (const item of items) {
         const aParty = item.a_party;
-        if (!flagsByA.has(aParty)) flagsByA.set(aParty, []);
-        flagsByA.get(aParty).push({
-          type: "shared_b_party_hub",
-          message: `B-party ${bId} contacted by ${distinctA.size} different A-parties`,
-          severity: "medium",
-          count: distinctA.size,
-        });
-        riskPoints.set(aParty, (riskPoints.get(aParty) || 0) + 1);
+        pushFlag(aParty, { type: "shared_b_party_hub", message: `B-party ${bId} contacted by ${distinctA.size} different A-parties`, severity: "medium", count: distinctA.size, source: "auto" }, 1);
       }
     }
   }
 
   const riskByA = {};
   for (const [aParty, points] of riskPoints.entries()) {
-    riskByA[aParty] = { score: points, level: points >= 4 ? "High" : points >= 2 ? "Medium" : "Low" };
+    riskByA[aParty] = { score: blacklistMatchesByA.has(aParty) ? Math.max(points, 5) : points, level: blacklistMatchesByA.has(aParty) ? "High" : points >= 4 ? "High" : points >= 2 ? "Medium" : "Low" };
   }
 
   for (const rec of data) {
@@ -292,12 +351,14 @@ function computeFlags(data) {
       risk_score: riskByA[aParty].score,
       risk_level: riskByA[aParty].level,
       flags: flagsByA.get(aParty) || [],
+        risk_details: riskDetailsByA.get(aParty) || [],
+        blacklist_matches: blacklistMatchesByA.get(aParty) || [],
       interaction_count: data.filter((r) => r.a_party === aParty).length,
       distinct_b_parties: new Set(data.filter((r) => r.a_party === aParty).map((r) => r.b_party_ip || r.b_party_number)).size,
     }))
     .sort((a, b) => b.risk_score - a.risk_score || b.interaction_count - a.interaction_count);
 
-  return { flagsByA, riskByA, flaggedRecords: out, topFlagged };
+  return { flagsByA, riskByA, riskDetailsByA, blacklistMatchesByA, flaggedRecords: out, topFlagged };
 }
 
 function aggregateInteractions(data) {
@@ -317,6 +378,92 @@ function aggregateInteractions(data) {
     last_seen: items.map((i) => i.timestamp).sort().at(-1),
     session_types: [...new Set(items.map((i) => i.session_type).filter(Boolean))],
   }));
+}
+
+function listCases() {
+  return cases
+    .map((item) => ({
+      ...item,
+      party_count: caseParties.filter((party) => party.case_id === item.id).length,
+      last_updated: Math.max(
+        new Date(item.updated_at).getTime(),
+        ...caseNotes.filter((note) => note.case_id === item.id).map((note) => new Date(note.created_at).getTime())
+      )
+        ? new Date(Math.max(new Date(item.updated_at).getTime(), ...caseNotes.filter((note) => note.case_id === item.id).map((note) => new Date(note.created_at).getTime()))).toISOString().replace("T", " ").slice(0, 19)
+        : item.updated_at,
+    }))
+    .sort((a, b) => String(b.last_updated).localeCompare(String(a.last_updated)));
+}
+
+function createCase(payload) {
+  const now = iso(new Date());
+  const created = { id: nextCaseId++, name: payload.name, description: payload.description || "", status: payload.status || "Open", created_at: now, updated_at: now };
+  cases.push(created);
+  return created;
+}
+
+function addPartyToCase(caseId, subject, subjectTypeValue = "unknown") {
+  if (!cases.find((item) => item.id === caseId)) throw new Error("Case not found");
+  if (!caseParties.some((item) => item.case_id === caseId && item.subject === subject)) {
+    caseParties.push({ id: nextCasePartyId++, case_id: caseId, subject, subject_type: subjectTypeValue, created_at: iso(new Date()) });
+  }
+  const selected = cases.find((item) => item.id === caseId);
+  selected.updated_at = iso(new Date());
+  return getCaseDetail(caseId);
+}
+
+function addNoteToCase(caseId, note) {
+  if (!cases.find((item) => item.id === caseId)) throw new Error("Case not found");
+  caseNotes.push({ id: nextCaseNoteId++, case_id: caseId, note, created_at: iso(new Date()) });
+  const selected = cases.find((item) => item.id === caseId);
+  selected.updated_at = iso(new Date());
+  return getCaseDetail(caseId);
+}
+
+function getCaseDetail(caseId) {
+  const caseRow = cases.find((item) => item.id === caseId);
+  if (!caseRow) throw new Error("Case not found");
+  const flagged = computeFlags(records);
+  const subjects = caseParties.filter((item) => item.case_id === caseId).map((item) => item.subject);
+  const partyProfiles = subjects.map((subject) => buildPartyProfile(subject, flagged));
+  const caseRecords = records.filter((record) => subjects.includes(record.a_party) || subjects.includes(getSubjectValue(record)));
+  const network = networkData(settings.graph_limit);
+  network.nodes = network.nodes.filter((node) => subjects.includes(node.id));
+  network.edges = network.edges.filter((edge) => subjects.includes(edge.source) && subjects.includes(edge.target));
+  const notes = caseNotes.filter((item) => item.case_id === caseId);
+  return {
+    ...caseRow,
+    summary: {
+      total_interactions: partyProfiles.reduce((sum, profile) => sum + profile.interaction_count, 0),
+      risk_score: partyProfiles.reduce((sum, profile) => sum + Number(profile.risk.score || 0), 0),
+      flag_count: partyProfiles.reduce((sum, profile) => sum + profile.flags.length, 0),
+      last_updated: caseRow.updated_at,
+    },
+    parties: partyProfiles,
+    notes,
+    network,
+  };
+}
+
+function blacklistList() {
+  return [...blacklistEntries].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+}
+
+function blacklistCreate(payload) {
+  const existing = blacklistEntries.find((entry) => entry.value === payload.value);
+  if (existing) {
+    existing.value_type = payload.value_type;
+    existing.label = payload.label;
+    return existing;
+  }
+  const created = { id: nextBlacklistId++, value: payload.value, value_type: payload.value_type || "any", label: payload.label, created_at: iso(new Date()) };
+  blacklistEntries.push(created);
+  return created;
+}
+
+function blacklistDelete(entryId) {
+  blacklistEntries = blacklistEntries.filter((entry) => entry.id !== entryId);
+  return { status: "deleted", id: entryId };
 }
 
 function filterRecords(query = {}) {
@@ -474,6 +621,21 @@ const demo = {
     }
     return settings;
   },
+  async cases(method, payload) {
+    if (method === "POST" && payload) return createCase(payload);
+    return listCases();
+  },
+  async caseDetail(method, path, payload) {
+    const id = Number(path.split("/")[2]);
+    if (method === "POST" && path.endsWith("/parties")) return addPartyToCase(id, payload.subject, payload.subject_type);
+    if (method === "POST" && path.endsWith("/notes")) return addNoteToCase(id, payload.note);
+    return getCaseDetail(id);
+  },
+  async blacklist(method, payload, path = "") {
+    if (method === "POST" && path === "/blacklist") return blacklistCreate(payload);
+    if (method === "DELETE") return blacklistDelete(Number(path.split("/").pop()));
+    return blacklistList();
+  },
   async investigation(query) {
     const flagged = computeFlags(records);
     const rows = records.filter((r) => [r.a_party, r.b_party_ip, r.b_party_number].some((value) => String(value || "").includes(query)));
@@ -482,15 +644,20 @@ const demo = {
     return {
       query,
       a_party: aParty,
+      subject: query,
+      subject_type: subjectType(query),
       risk: flagged.riskByA[aParty] || { score: 0, level: "Low" },
       flags: flagged.flagsByA.get(aParty) || [],
-      device_profile: buildDeviceProfile(rows),
+      risk_details: flagged.riskDetailsByA.get(aParty) || [],
+      blacklist_matches: flagged.blacklistMatchesByA.get(aParty) || [],
       interactions: aggregateInteractions(rows).map((item) => ({
         ...item,
         risk: flagged.riskByA[item.a_party] || { score: 0, level: "Low" },
         flags: flagged.flagsByA.get(item.a_party) || [],
       })),
       records: rows,
+      party_profiles: [buildPartyProfile(aParty, flagged)],
+      assigned_cases: [],
     };
   },
   async exportCsv(query = {}) {

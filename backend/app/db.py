@@ -73,9 +73,6 @@ def initialize_db():
                 port TEXT,
                 data_volume REAL,
                 session_type TEXT,
-                imei TEXT,
-                imsi TEXT,
-                cell_id TEXT,
                 raw_json TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(upload_id) REFERENCES uploads(id) ON DELETE SET NULL
@@ -94,7 +91,7 @@ def initialize_db():
             CREATE TABLE IF NOT EXISTS cases (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                description TEXT DEFAULT '',
+                description TEXT,
                 status TEXT NOT NULL DEFAULT 'Open',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -103,10 +100,10 @@ def initialize_db():
             CREATE TABLE IF NOT EXISTS case_parties (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 case_id INTEGER NOT NULL,
-                party_value TEXT NOT NULL,
-                party_type TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                subject_type TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(case_id, party_value, party_type),
+                UNIQUE(case_id, subject),
                 FOREIGN KEY(case_id) REFERENCES cases(id) ON DELETE CASCADE
             );
 
@@ -114,40 +111,21 @@ def initialize_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 case_id INTEGER NOT NULL,
                 note TEXT NOT NULL,
-                created_by TEXT DEFAULT 'investigator',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(case_id) REFERENCES cases(id) ON DELETE CASCADE
             );
 
-            CREATE TABLE IF NOT EXISTS manual_flags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target_value TEXT NOT NULL,
-                target_type TEXT NOT NULL,
-                reason TEXT NOT NULL,
-                investigator TEXT DEFAULT 'investigator',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
             CREATE TABLE IF NOT EXISTS blacklist_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target_value TEXT NOT NULL UNIQUE,
-                target_type TEXT NOT NULL,
+                value TEXT UNIQUE NOT NULL,
+                value_type TEXT NOT NULL DEFAULT 'any',
                 label TEXT NOT NULL,
-                reason TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
-        migrate_schema(conn)
         seed_defaults(conn)
-
-
-def migrate_schema(conn):
-    """Idempotent in-place upgrades for databases created before new columns existed."""
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(records)").fetchall()}
-    for column in ("imei", "imsi", "cell_id"):
-        if column not in existing:
-            conn.execute(f"ALTER TABLE records ADD COLUMN {column} TEXT")
+        seed_reference_data(conn)
 
 
 def seed_defaults(conn):
@@ -169,43 +147,46 @@ def seed_defaults(conn):
             (key, json.dumps(value)),
         )
 
-    seed_blacklist(conn)
 
-
-def seed_blacklist(conn):
-    seed_entries = [
-        ("203.0.113.10", "ip", "Known VPN exit node", "Previously linked to credential stuffing campaigns"),
-        ("203.0.113.22", "ip", "Fraud relay endpoint", "Observed in prior telecom fraud investigation"),
-        ("203.0.113.35", "ip", "Command-and-control host", "Suspicious beacon traffic pattern in archived case"),
-        ("198.51.100.44", "ip", "TOR bridge indicator", "Multiple anonymized routing traces"),
-        ("198.51.100.77", "ip", "Malware staging server", "Used for payload distribution in historical incident"),
-        ("198.51.100.133", "ip", "Phishing infrastructure", "Domain and IP tied to smishing operation"),
-        ("185.17.24.9", "ip", "Darknet gateway node", "Cross-border cybercrime intel match"),
-        ("45.155.205.12", "ip", "Fraud call redirector", "High-risk rerouting endpoint"),
-        ("91.214.124.8", "ip", "Compromised proxy network", "Known abuse of residential proxy pool"),
-        ("103.77.192.61", "ip", "Data exfiltration proxy", "Repeated high-volume short sessions"),
-        ("8000099000", "number", "Fraud ring handset", "Linked to synthetic identity scam chain"),
-        ("8000002000", "number", "Beacon test number", "Used for repeated short ping-like calls"),
-        ("8000010007", "number", "Coordinator handset", "Appeared in prior narcotics coordination case"),
-        ("919999000111", "number", "Spoofing origin line", "Carrier report flagged repeated spoofing"),
-        ("918888123456", "number", "Known mule contact", "Financial mule recruitment hotline"),
-        ("917777654321", "number", "Bulk scam caller", "Repeated telecom complaint records"),
-        ("8000001000", "number", "Dark market contact", "Mapped in prior cyber-intel bulletin"),
-        ("912345678901", "number", "Compromised bot control", "Known botnet control number"),
+def seed_reference_data(conn):
+    entries = [
+        ("198.51.100.77", "ip", "Known VPN exit node used in prior cybercrime case"),
+        ("203.0.113.90", "ip", "Previously linked to fraud ring command host"),
+        ("203.0.113.200", "ip", "Proxy endpoint associated with credential theft"),
+        ("198.51.100.14", "ip", "Disposable infrastructure used for phishing delivery"),
+        ("198.51.100.24", "ip", "Suspicious relay observed in abuse reports"),
+        ("198.51.100.29", "ip", "Botnet staging server from prior investigation"),
+        ("10.10.10.10", "ip", "Known malware C2 test fixture"),
+        ("172.16.200.15", "ip", "Residential proxy node tied to account takeover"),
+        ("8000001000", "number", "Caller ID tied to harassment complaint"),
+        ("8000002000", "number", "Number used in prior extortion attempt"),
+        ("8000099000", "number", "Disposal SIM linked to coordinated fraud"),
+        ("9177000001", "number", "Previously seen in late-night burst activity"),
+        ("9177000002", "number", "Short-call relay number in prior telecom case"),
+        ("9177000003", "number", "High fan-out number flagged by partners"),
+        ("9199000004", "number", "Suspected mule line used for laundering support"),
+        ("9199000005", "number", "Blacklisted outreach number from spam ring"),
+        ("9199000006", "number", "SIM used for repeated OTP interception"),
+        ("192.0.2.250", "ip", "Known bad IP from demo threat feed"),
     ]
-    for value, target_type, label, reason in seed_entries:
+    for value, value_type, label in entries:
         conn.execute(
             """
-            INSERT OR IGNORE INTO blacklist_entries (target_value, target_type, label, reason)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO blacklist_entries (value, value_type, label)
+            VALUES (?, ?, ?)
+            ON CONFLICT(value) DO UPDATE SET value_type = excluded.value_type, label = excluded.label
             """,
-            (value, target_type, label, reason),
+            (value, value_type, label),
         )
 
 
 def get_setting(conn, key, default=None):
     row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return json.loads(row["value"]) if row else default
+
+
+def get_blacklist_entries(conn):
+    return [dict(row) for row in conn.execute("SELECT id, value, value_type, label, created_at FROM blacklist_entries").fetchall()]
 
 
 def set_settings(conn, values):
@@ -225,9 +206,7 @@ def parse_datetime(value):
     try:
         from dateutil import parser as dtparser
 
-        # dayfirst=True: Indian TSP exports use DD/MM/YYYY (e.g. 28/06/2026).
-        # Unambiguous ISO formats (YYYY-MM-DD) are still parsed correctly.
-        dt = dtparser.parse(text, fuzzy=True, dayfirst=True)
+        dt = dtparser.parse(text, fuzzy=True)
         if dt.tzinfo is not None:
             dt = dt.astimezone().replace(tzinfo=None)
         return dt.replace(microsecond=0).isoformat(sep=" ")

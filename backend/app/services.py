@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from .config import DEFAULT_SETTINGS
-from .db import get_setting, parse_datetime
+from .db import get_blacklist_entries, get_setting, parse_datetime
 
 
 ALIASES = {
@@ -22,12 +22,6 @@ ALIASES = {
         "caller",
         "caller_number",
         "msisdn",
-        "msisdn_number",
-        "mobile_no",
-        "mobile_number",
-        "calling_party",
-        "landline_msisdn",
-        "subscriber_number",
         "source_number",
         "src_number",
         "from_number",
@@ -36,20 +30,16 @@ ALIASES = {
         "b_party_ip",
         "destination_ip",
         "dest_ip",
-        "dest_ip_address",
-        "destination_ip_address",
         "recipient_ip",
         "remote_ip",
         "ip",
         "server_ip",
         "dst_ip",
         "b_ip",
-        "public_ip",
     ],
     "b_party_number": [
         "b_party_number",
         "called_number",
-        "called_party",
         "destination_number",
         "dest_number",
         "callee",
@@ -63,7 +53,6 @@ ALIASES = {
         "event_time",
         "call_time",
         "start_time",
-        "start_date_time",
         "session_start",
         "time",
     ],
@@ -74,45 +63,11 @@ ALIASES = {
         "seconds",
         "elapsed",
         "session_duration",
-        "sess_duration",
     ],
-    "port": ["port", "dst_port", "dest_port", "destination_port", "remote_port", "server_port"],
-    "data_volume": ["data_volume", "bytes", "data_bytes", "volume", "traffic_bytes", "total_volume"],
+    "port": ["port", "dst_port", "destination_port", "remote_port", "server_port"],
+    "data_volume": ["data_volume", "bytes", "data_bytes", "volume", "traffic_bytes"],
     "session_type": ["session_type", "type", "connection_type", "service_type", "protocol"],
-    "imei": ["imei", "imei_number", "device_id", "handset_imei"],
-    "imsi": ["imsi", "imsi_number", "sim_id"],
-    "cell_id": [
-        "cell_id",
-        "cell_global_id",
-        "cgi",
-        "first_cell_id",
-        "first_cgi",
-        "tower_id",
-        "lac_ci",
-        "location_id",
-    ],
 }
-
-
-def normalize_msisdn(value: str) -> str:
-    """Normalize Indian mobile numbers to their canonical 10-digit form.
-
-    Handles +91 / 0091 / 91 / 0 prefixes and separators so the same subscriber
-    appearing in different operator export styles aggregates as one party.
-    Non-mobile values (landlines, short codes, IPs) are returned trimmed but unchanged.
-    """
-    text = str(value).strip()
-    cleaned = text.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    digits = cleaned[1:] if cleaned.startswith("+") else cleaned
-    if not digits.isdigit():
-        return text
-    for prefix in ("0091", "91", "0"):
-        if digits.startswith(prefix) and len(digits) == len(prefix) + 10:
-            candidate = digits[len(prefix):]
-            # Indian mobile numbers start with 6-9
-            if candidate[0] in "6789":
-                return candidate
-    return digits
 
 
 def normalize_key(value: Any) -> str:
@@ -163,9 +118,9 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
         mapped[field] = value
 
     timestamp = parse_datetime(mapped["timestamp"])
-    a_party = normalize_msisdn(mapped["a_party"]) if mapped["a_party"] not in (None, "") else ""
+    a_party = str(mapped["a_party"]).strip() if mapped["a_party"] not in (None, "") else ""
     b_party_ip = str(mapped["b_party_ip"]).strip() if mapped["b_party_ip"] not in (None, "") else ""
-    b_party_number = normalize_msisdn(mapped["b_party_number"]) if mapped["b_party_number"] not in (None, "") else ""
+    b_party_number = str(mapped["b_party_number"]).strip() if mapped["b_party_number"] not in (None, "") else ""
     duration_raw = mapped["duration_sec"]
     data_volume_raw = mapped["data_volume"]
 
@@ -192,9 +147,6 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
         "port": str(mapped["port"]).strip() if mapped["port"] not in (None, "") else "",
         "data_volume": data_volume,
         "session_type": str(mapped["session_type"]).strip() if mapped["session_type"] not in (None, "") else "unknown",
-        "imei": str(mapped["imei"]).strip() if mapped["imei"] not in (None, "") else "",
-        "imsi": str(mapped["imsi"]).strip() if mapped["imsi"] not in (None, "") else "",
-        "cell_id": str(mapped["cell_id"]).strip() if mapped["cell_id"] not in (None, "") else "",
         "raw_json": json.dumps(raw, ensure_ascii=False),
     }
 
@@ -216,8 +168,8 @@ def import_records(conn, filename: str, rows: list[dict[str, Any]], file_type: s
             conn.execute(
                 """
                 INSERT INTO records
-                (upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp, duration_sec, port, data_volume, session_type, imei, imsi, cell_id, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp, duration_sec, port, data_volume, session_type, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     upload_id,
@@ -231,9 +183,6 @@ def import_records(conn, filename: str, rows: list[dict[str, Any]], file_type: s
                     record["port"],
                     record["data_volume"],
                     record["session_type"],
-                    record["imei"],
-                    record["imsi"],
-                    record["cell_id"],
                     record["raw_json"],
                 ),
             )
@@ -262,7 +211,7 @@ def fetch_all_records(conn):
     return conn.execute(
         """
         SELECT id, upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp,
-               duration_sec, port, data_volume, session_type, imei, imsi, cell_id, raw_json
+               duration_sec, port, data_volume, session_type, raw_json
         FROM records
         ORDER BY timestamp DESC, id DESC
         """
@@ -285,24 +234,11 @@ def compute_flags(conn) -> dict[str, Any]:
         return {
             "flags_by_a_party": {},
             "risk_by_a_party": {},
+            "risk_details_by_a_party": {},
+            "blacklist_matches_by_a_party": {},
             "flagged_records": [],
             "top_flagged": [],
-            "breakdown_by_a_party": {},
         }
-
-    blacklist_rows = conn.execute(
-        "SELECT id, target_value, target_type, label, reason FROM blacklist_entries"
-    ).fetchall()
-    manual_rows = conn.execute(
-        "SELECT id, target_value, target_type, reason, investigator, created_at FROM manual_flags ORDER BY created_at DESC"
-    ).fetchall()
-
-    blacklist_by_value = {}
-    for row in blacklist_rows:
-        value = str(row["target_value"]).strip().lower()
-        blacklist_by_value[value] = dict(row)
-        # entries stored with +91/91/0 prefixes still match normalized records
-        blacklist_by_value[normalize_msisdn(value).lower()] = dict(row)
 
     for record in records:
         record["dt"] = datetime.fromisoformat(record["timestamp"])
@@ -314,9 +250,30 @@ def compute_flags(conn) -> dict[str, Any]:
         by_a[record["a_party"]].append(record)
         by_b[record["b_id"]].append(record)
 
+    blacklist_entries = get_blacklist_entries(conn)
+    blacklist_lookup = defaultdict(list)
+    for entry in blacklist_entries:
+        blacklist_lookup[entry["value"]].append(entry)
+
     flags_by_a: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    breakdown_by_a: dict[str, list[dict[str, Any]]] = defaultdict(list)
     risk_points = defaultdict(int)
+    risk_details_by_a: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    blacklist_matches_by_a: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    def add_contribution(a_party: str, flag: dict[str, Any], points: int):
+        flags_by_a[a_party].append(flag)
+        risk_points[a_party] += points
+        risk_details_by_a[a_party].append(
+            {
+                "type": flag["type"],
+                "message": flag["message"],
+                "severity": flag["severity"],
+                "points": points,
+                "source": flag.get("source", "auto"),
+                "note": flag.get("note"),
+                "label": flag.get("label"),
+            }
+        )
 
     night_start = int(settings["night_start_hour"])
     night_end = int(settings["night_end_hour"])
@@ -326,8 +283,6 @@ def compute_flags(conn) -> dict[str, Any]:
     distinct_window = int(settings["distinct_window_minutes"])
     distinct_b_threshold = int(settings["distinct_b_threshold"])
     shared_b_threshold = int(settings["shared_bparty_threshold"])
-    device_churn_threshold = int(settings.get("device_churn_imei_threshold") or 2)
-    shared_imei_threshold = int(settings.get("shared_imei_party_threshold") or 1)
 
     def is_night(hour: int) -> bool:
         if night_start == night_end:
@@ -336,54 +291,40 @@ def compute_flags(conn) -> dict[str, Any]:
             return night_start <= hour < night_end
         return hour >= night_start or hour < night_end
 
-    def add_flag(a_party: str, flag: dict[str, Any], points: int):
-        flags_by_a[a_party].append(flag)
-        breakdown_by_a[a_party].append(
-            {
-                "rule": flag["type"],
-                "label": flag.get("label", flag["type"]),
-                "message": flag["message"],
-                "points": points,
-                "category": flag.get("category", "auto"),
-            }
-        )
-        risk_points[a_party] += points
-
     for a_party, items in by_a.items():
         night_count = sum(1 for r in items if is_night(r["dt"].hour))
         if night_count > night_threshold:
-            add_flag(
+            add_contribution(
                 a_party,
                 {
                     "type": "night_activity",
-                    "label": "Late-night activity exceeded threshold",
                     "message": f"{night_count} interactions between {night_start:02d}:00 and {night_end:02d}:00",
                     "severity": "medium",
                     "count": night_count,
-                    "category": "auto",
+                    "source": "auto",
                 },
-                3,
+                1,
             )
 
         short_pairs = Counter(r["b_id"] for r in items if r["duration_sec"] < short_threshold)
         if short_pairs:
             top_b, top_count = short_pairs.most_common(1)[0]
             if top_count > short_repeat_threshold:
-                add_flag(
+                add_contribution(
                     a_party,
                     {
                         "type": "short_repeated_sessions",
-                        "label": "Short-duration repeated sessions",
                         "message": f"{top_count} short sessions with {top_b}",
                         "severity": "high",
                         "count": top_count,
-                        "category": "auto",
+                        "source": "auto",
                     },
                     2,
                 )
 
         times = sorted(r["dt"] for r in items)
-        for current in times:
+        distinct_problem = False
+        for index, current in enumerate(times):
             end = current + timedelta(minutes=distinct_window)
             b_set = {
                 r["b_id"]
@@ -391,19 +332,46 @@ def compute_flags(conn) -> dict[str, Any]:
                 if current <= r["dt"] <= end
             }
             if len(b_set) > distinct_b_threshold:
-                add_flag(
+                distinct_problem = True
+                add_contribution(
                     a_party,
                     {
                         "type": "many_distinct_b_parties",
-                        "label": "High number of distinct B-parties",
                         "message": f"{len(b_set)} distinct B-parties within {distinct_window} minutes",
                         "severity": "high",
                         "count": len(b_set),
-                        "category": "auto",
+                        "source": "auto",
                     },
                     2,
                 )
                 break
+
+        for record in items:
+            b_id = record["b_id"]
+            matches = blacklist_lookup.get(b_id, [])
+            for entry in matches:
+                match_key = f"{entry['value_type']}:{entry['value']}"
+                if any(existing.get("match_key") == match_key for existing in blacklist_matches_by_a[a_party]):
+                    continue
+                flag = {
+                    "type": "blacklist_match",
+                    "message": f"Matched blacklisted {entry['value_type']} ({entry['label']})",
+                    "severity": "high",
+                    "count": 1,
+                    "source": "blacklist",
+                    "label": entry["label"],
+                    "value": entry["value"],
+                    "value_type": entry["value_type"],
+                    "match_key": match_key,
+                }
+                add_contribution(a_party, flag, 5)
+                blacklist_matches_by_a[a_party].append({
+                    "match_key": match_key,
+                    "value": entry["value"],
+                    "value_type": entry["value_type"],
+                    "label": entry["label"],
+                    "message": flag["message"],
+                })
 
     shared_b_ids = {}
     for b_id, items in by_b.items():
@@ -411,156 +379,37 @@ def compute_flags(conn) -> dict[str, Any]:
         if len(distinct_a) > shared_b_threshold:
             shared_b_ids[b_id] = len(distinct_a)
 
-    flagged_for_shared_hub = set()
     for b_id, count in shared_b_ids.items():
         for record in by_b[b_id]:
-            a_party = record["a_party"]
-            if (a_party, b_id) not in flagged_for_shared_hub:
-                add_flag(
-                    a_party,
-                    {
-                        "type": "shared_b_party_hub",
-                        "label": "Shared B-party hub pattern",
-                        "message": f"B-party {b_id} contacted by {count} different A-parties",
-                        "severity": "medium",
-                        "count": count,
-                        "category": "auto",
-                    },
-                    1,
-                )
-                flagged_for_shared_hub.add((a_party, b_id))
-
-    # Device-based rules — only fire when uploads include IMEI data
-    imei_to_a_parties = defaultdict(set)
-    for record in records:
-        imei = str(record.get("imei") or "").strip()
-        if imei:
-            imei_to_a_parties[imei].add(record["a_party"])
-
-    for a_party, items in by_a.items():
-        imeis = {str(r.get("imei") or "").strip() for r in items} - {""}
-        if len(imeis) > device_churn_threshold:
-            add_flag(
-                a_party,
+            add_contribution(
+                record["a_party"],
                 {
-                    "type": "device_churn",
-                    "label": "Number cycling multiple handsets",
-                    "message": f"Used {len(imeis)} different handsets (IMEIs)",
-                    "severity": "high",
-                    "count": len(imeis),
-                    "category": "auto",
+                    "type": "shared_b_party_hub",
+                    "message": f"B-party {b_id} contacted by {count} different A-parties",
+                    "severity": "medium",
+                    "count": count,
+                    "source": "auto",
                 },
-                3,
+                1,
             )
-
-    for imei, a_set in imei_to_a_parties.items():
-        if len(a_set) > shared_imei_threshold:
-            for a_party in a_set:
-                add_flag(
-                    a_party,
-                    {
-                        "type": "shared_imei",
-                        "label": "Handset shared across multiple numbers (SIM swap)",
-                        "message": f"IMEI {imei} used with {len(a_set)} different A-party numbers",
-                        "severity": "high",
-                        "count": len(a_set),
-                        "category": "auto",
-                    },
-                    3,
-                )
-
-    for a_party, items in by_a.items():
-        matched_entries = []
-        for item in items:
-            b_candidates = [item["b_party_ip"], item["b_party_number"], item["b_id"]]
-            for candidate in b_candidates:
-                value = str(candidate or "").strip().lower()
-                if not value:
-                    continue
-                row = blacklist_by_value.get(value)
-                if row:
-                    matched_entries.append(row)
-        if matched_entries:
-            unique_rows = {entry["target_value"]: entry for entry in matched_entries}.values()
-            for entry in unique_rows:
-                add_flag(
-                    a_party,
-                    {
-                        "type": "blacklist_match",
-                        "label": "Matched blacklisted IP/number database",
-                        "message": f"{entry['target_value']} matched blacklist: {entry['reason']}",
-                        "severity": "high",
-                        "count": 1,
-                        "category": "blacklist",
-                        "blacklist_reason": entry["reason"],
-                    },
-                    5,
-                )
-
-    manual_by_target = defaultdict(list)
-    for row in manual_rows:
-        value = str(row["target_value"]).strip().lower()
-        manual_by_target[value].append(dict(row))
-        normalized = normalize_msisdn(value).lower()
-        if normalized != value:
-            manual_by_target[normalized].append(dict(row))
-
-    for a_party, items in by_a.items():
-        seen_manual_ids = set()
-        candidates = {a_party.lower()}
-        candidates.update(str(item["b_party_ip"] or "").lower() for item in items if item["b_party_ip"])
-        candidates.update(str(item["b_party_number"] or "").lower() for item in items if item["b_party_number"])
-        for candidate in candidates:
-            for row in manual_by_target.get(candidate, []):
-                if row["id"] in seen_manual_ids:
-                    continue
-                seen_manual_ids.add(row["id"])
-                add_flag(
-                    a_party,
-                    {
-                        "type": "manual_flag",
-                        "label": "Investigator manual flag",
-                        "message": f"{row['reason']} (by {row['investigator']})",
-                        "severity": "medium",
-                        "count": 1,
-                        "category": "manual",
-                    },
-                    2,
-                )
 
     risk_by_a = {}
     for a_party, points in risk_points.items():
-        categories = {item["category"] for item in breakdown_by_a.get(a_party, [])}
         level = "Low"
-        if "blacklist" in categories:
+        if points >= 4:
             level = "High"
-        elif points >= 7:
-            level = "High"
-        elif points >= 4:
+        elif points >= 2:
             level = "Medium"
-        risk_by_a[a_party] = {
-            "score": points,
-            "level": level,
-            "has_blacklist_match": "blacklist" in categories,
-            "has_manual_flag": "manual" in categories,
-            "has_auto_flag": "auto" in categories,
-        }
+        if blacklist_matches_by_a.get(a_party):
+            level = "High"
+            points = max(points, 5)
+        risk_by_a[a_party] = {"score": points, "level": level}
 
     flagged_records = []
     for record in records:
-        risk = risk_by_a.get(
-            record["a_party"],
-            {"score": 0, "level": "Low", "has_blacklist_match": False, "has_manual_flag": False, "has_auto_flag": False},
-        )
+        risk = risk_by_a.get(record["a_party"], {"score": 0, "level": "Low"})
         if risk["score"] > 0:
-            flagged_records.append(
-                {
-                    **record,
-                    "risk": risk,
-                    "flags": flags_by_a.get(record["a_party"], []),
-                    "breakdown": breakdown_by_a.get(record["a_party"], []),
-                }
-            )
+            flagged_records.append({**record, "risk": risk, "flags": flags_by_a.get(record["a_party"], [])})
 
     top_flagged = sorted(
         [
@@ -569,10 +418,8 @@ def compute_flags(conn) -> dict[str, Any]:
                 "risk_score": risk_by_a[a_party]["score"],
                 "risk_level": risk_by_a[a_party]["level"],
                 "flags": flags_by_a[a_party],
-                "breakdown": breakdown_by_a.get(a_party, []),
-                "has_blacklist_match": risk_by_a[a_party]["has_blacklist_match"],
-                "has_manual_flag": risk_by_a[a_party]["has_manual_flag"],
-                "has_auto_flag": risk_by_a[a_party]["has_auto_flag"],
+                "risk_details": risk_details_by_a[a_party],
+                "blacklist_matches": blacklist_matches_by_a[a_party],
                 "interaction_count": len(by_a[a_party]),
                 "distinct_b_parties": len({r["b_id"] for r in by_a[a_party]}),
             }
@@ -585,9 +432,10 @@ def compute_flags(conn) -> dict[str, Any]:
     return {
         "flags_by_a_party": dict(flags_by_a),
         "risk_by_a_party": risk_by_a,
+        "risk_details_by_a_party": dict(risk_details_by_a),
+        "blacklist_matches_by_a_party": dict(blacklist_matches_by_a),
         "flagged_records": flagged_records,
         "top_flagged": top_flagged,
-        "breakdown_by_a_party": dict(breakdown_by_a),
     }
 
 
@@ -616,31 +464,6 @@ def aggregate_interactions(rows):
     return results
 
 
-def build_device_profile(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Summarize distinct IMEIs, IMSIs and cell towers seen for a set of records."""
-
-    def collect(field: str) -> list[dict[str, Any]]:
-        seen: dict[str, dict[str, Any]] = {}
-        for record in records:
-            value = str(record.get(field) or "").strip()
-            if not value:
-                continue
-            entry = seen.setdefault(
-                value,
-                {"value": value, "count": 0, "first_seen": record["timestamp"], "last_seen": record["timestamp"]},
-            )
-            entry["count"] += 1
-            entry["first_seen"] = min(entry["first_seen"], record["timestamp"])
-            entry["last_seen"] = max(entry["last_seen"], record["timestamp"])
-        return sorted(seen.values(), key=lambda item: item["count"], reverse=True)
-
-    return {
-        "imeis": collect("imei"),
-        "imsis": collect("imsi"),
-        "cell_ids": collect("cell_id"),
-    }
-
-
 def is_relevant_record(record: dict[str, Any]) -> bool:
     b_id = (record.get("b_party_ip") or "").strip() or (record.get("b_party_number") or "").strip()
     if not b_id:
@@ -661,8 +484,8 @@ def record_matches_filters(record, filters):
     if filters.get("query"):
         q = filters["query"].lower()
         hay = " ".join(
-            str(record.get(field) or "").lower()
-            for field in ("a_party", "b_party_ip", "b_party_number", "session_type", "port", "imei", "imsi", "cell_id")
+            str(record.get(field, "")).lower()
+            for field in ("a_party", "b_party_ip", "b_party_number", "session_type", "port")
         )
         if q not in hay:
             return False
@@ -698,15 +521,13 @@ def build_network(records, flags, limit):
 
 
 def parse_investigation_rows(conn, query: str):
-    # normalize +91/91/0-prefixed queries so they match stored 10-digit parties
-    q = f"%{normalize_msisdn(query).lower()}%"
+    q = f"%{query.lower()}%"
     rows = conn.execute(
         """
         SELECT * FROM records
         WHERE lower(a_party) LIKE ? OR lower(b_party_ip) LIKE ? OR lower(b_party_number) LIKE ?
-           OR lower(COALESCE(imei, '')) LIKE ? OR lower(COALESCE(imsi, '')) LIKE ? OR lower(COALESCE(cell_id, '')) LIKE ?
         ORDER BY timestamp DESC
         """,
-        (q, q, q, q, q, q),
+        (q, q, q),
     ).fetchall()
     return [dict(row) for row in rows]

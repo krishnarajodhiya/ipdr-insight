@@ -1,13 +1,6 @@
 # IPDR Insight
 
-IPDR Insight is a full-stack investigation prototype that uploads telecom IPDR logs, normalizes mixed operator formats, maps A-party to B-party communication patterns, and highlights suspicious behavior with configurable rule-based detection. It is tuned for Indian telecom (TSP) investigation workflows.
-
-## India / TSP support
-- **MSISDN normalization** — `+91`, `91`, `0091`, and `0` prefixes (and spaced/hyphenated forms) collapse to the canonical 10-digit number so the same subscriber aggregates as one party across operators.
-- **Indian date format** — `DD-MM-YYYY` / `DD/MM/YYYY` timestamps are parsed correctly (dayfirst), alongside ISO formats.
-- **Device & location fields** — IMEI, IMSI, and Cell-ID (LAC-CI/CGI) columns from Jio/Airtel/Vi/BSNL-style exports are parsed, stored, searchable, and shown as a device profile in the investigation report and PDF.
-- **Device-based detection** — flags a number cycling multiple handsets (IMEI churn) and a single handset used across multiple numbers (SIM swap).
-- **Operator aliases** — column names like `MSISDN`, `DEST_IP_ADDRESS`, `CALLED_PARTY`, `START_DATE_TIME`, `SESS_DURATION`, `IMEI`, `IMSI`, `CELL_ID` are recognized automatically.
+IPDR Insight is a full-stack investigation prototype that uploads telecom IPDR logs, normalizes mixed operator formats, maps A-party to B-party communication patterns, and highlights suspicious behavior with configurable rule-based detection.
 
 ## Stack
 - Backend: FastAPI + pandas + SQLite

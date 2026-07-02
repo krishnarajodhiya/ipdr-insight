@@ -50,8 +50,6 @@ class SettingsPayload(BaseModel):
     distinct_window_minutes: int = Field(60, ge=5)
     distinct_b_threshold: int = Field(12, ge=1)
     shared_bparty_threshold: int = Field(6, ge=1)
-    device_churn_imei_threshold: int = Field(2, ge=1)
-    shared_imei_party_threshold: int = Field(1, ge=1)
     graph_limit: int = Field(200, ge=25, le=1000)
 
 
@@ -64,3 +62,24 @@ class InteractionFilter(BaseModel):
     b_party: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+
+
+class CaseCreatePayload(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    status: str = Field("Open", pattern="^(Open|Closed)$")
+
+
+class CaseNotePayload(BaseModel):
+    note: str
+
+
+class CasePartyPayload(BaseModel):
+    subject: str
+    subject_type: Optional[str] = "unknown"
+
+
+class BlacklistEntryPayload(BaseModel):
+    value: str
+    value_type: str = Field("any", pattern="^(any|ip|number)$")
+    label: str

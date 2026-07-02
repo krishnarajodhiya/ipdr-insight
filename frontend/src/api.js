@@ -25,6 +25,10 @@ export async function apiFetch(path, options = {}, token) {
     if (path.startsWith("/interactions")) return demo.interactions(queryParams(path));
     if (path.startsWith("/settings")) return demo.settings(method, JSON.parse(options.body || "null"));
     if (path.startsWith("/investigation/")) return demo.investigation(decodeURIComponent(path.split("/").pop() || ""));
+    if (path === "/cases") return demo.cases(method, JSON.parse(options.body || "null"));
+    if (path.startsWith("/cases/")) return demo.caseDetail(method, path, JSON.parse(options.body || "null"));
+    if (path === "/blacklist") return demo.blacklist(method, JSON.parse(options.body || "null"));
+    if (path.startsWith("/blacklist/")) return demo.blacklist(method, JSON.parse(options.body || "null"), path);
     if (path.startsWith("/export/csv")) return demo.exportCsv(queryParams(path));
     if (path.startsWith("/export/pdf")) return demo.exportPdf(queryParams(path).query || "");
     if (path.startsWith("/upload")) return demo.upload(options.body);

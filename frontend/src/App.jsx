@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { // This list will shrink as components are moved
+import {
   forceCenter,
   forceCollide,
   forceLink,
@@ -11,26 +11,32 @@ import { // This list will shrink as components are moved
 } from "d3-force";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  AlertTriangle, // This list will shrink as components are moved
+  AlertTriangle,
+  Clock3,
   Database,
+  FileText,
+  Folder,
+  FolderPlus,
   LayoutDashboard,
   LogOut,
+  Plus,
   Network,
+  ShieldAlert,
+  Info,
   Search,
   Settings,
   Upload,
+  Trash2,
   Users,
   ZoomIn,
   ZoomOut,
   RefreshCw,
 } from "lucide-react";
-
-import { LoginView } from "./components/LoginView"; // Example import
-import { useAuth } from "./hooks/useAuth";
-import { CyberBackdrop } from "./components/CyberBackdrop";
-
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import { apiFetch, downloadBlob } from "./api";
 
+const STORAGE_KEY = "ipdr_insight_token";
 const ACCENT = "#1e40af";
 const BOOT_MESSAGES = [
   "Authenticating session...",
@@ -56,8 +62,203 @@ function riskBorder(level) {
   return "border-l-slate-300";
 }
 
+function blacklistTone() {
+  return "text-red-950 bg-red-100 border-red-300";
+}
+
+function blacklistBorder() {
+  return "border-l-red-700";
+}
+
+function subjectType(subject) {
+  const text = String(subject || "");
+  if (text.includes(":") || text.split(".").length === 4) return "ip";
+  if (/^\d+$/.test(text)) return "number";
+  return "unknown";
+}
+
+function subjectLabel(subject) {
+  const type = subjectType(subject);
+  return `${subject} ${type === "ip" ? "(IP)" : type === "number" ? "(Number)" : ""}`.trim();
+}
+
+function flagSource(row) {
+  if (row?.blacklist_matches?.length) return "blacklist";
+  if (row?.flags?.some((flag) => flag.source === "manual")) return "manual";
+  return "auto";
+}
+
+function WhyFlaggedPopover({ details = [], risk }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative inline-block">
+      <button onClick={() => setOpen((current) => !current)} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900">
+        <Info size={13} />
+        Why flagged?
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-900">Risk breakdown</p>
+            <button className="text-xs muted" onClick={() => setOpen(false)}>Close</button>
+          </div>
+          <ul className="mt-3 space-y-2 text-sm text-slate-700">
+            {details.length ? details.map((detail, index) => (
+              <li key={`${detail.type}-${index}`} className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                <span>
+                  {detail.message} <span className="font-semibold text-slate-900">→ +{detail.points}</span>
+                </span>
+              </li>
+            )) : <li className="muted">No triggered rules.</li>}
+          </ul>
+          <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm">
+            <span className="font-semibold text-slate-900">Total Risk Score:</span> {risk?.score ?? 0} → <span className="font-semibold">{risk?.level ?? "Low"}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+async function exportReportPdf(element, fileName) {
+  if (!element) return;
+  const canvas = await html2canvas(element, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+  const imageData = canvas.toDataURL("image/png");
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const imageHeight = (canvas.height * pageWidth) / canvas.width;
+  let remaining = imageHeight;
+  let position = 0;
+  while (remaining > 0) {
+    pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
+    remaining -= pageHeight;
+    if (remaining > 0) {
+      pdf.addPage();
+      position -= pageHeight;
+    }
+  }
+  pdf.save(fileName);
+}
+
+function useAuth() {
+  const [token, setToken] = useState(localStorage.getItem(STORAGE_KEY) || "");
+  const [username, setUsername] = useState("admin");
+
+  const login = (payload) => {
+    localStorage.setItem(STORAGE_KEY, payload.access_token);
+    setToken(payload.access_token);
+    setUsername(payload.username);
+  };
+
+  const logout = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setToken("");
+    setUsername("");
+  };
+
+  return { token, username, login, logout };
+}
+
 function Skeleton({ className }) {
   return <div className={`skeleton rounded-xl ${className}`} />;
+}
+
+function CyberBackdrop() {
+  return (
+    <>
+      <div className="auth-bg-gradient" />
+      <div className="auth-bg-grid" />
+      <svg className="auth-bg-network" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden>
+        <g>
+          <line x1="120" y1="140" x2="380" y2="240" />
+          <line x1="380" y1="240" x2="620" y2="180" />
+          <line x1="620" y1="180" x2="860" y2="280" />
+          <line x1="860" y1="280" x2="1040" y2="220" />
+          <line x1="260" y1="430" x2="520" y2="360" />
+          <line x1="520" y1="360" x2="740" y2="470" />
+          <line x1="740" y1="470" x2="980" y2="390" />
+          <line x1="210" y1="640" x2="470" y2="560" />
+          <line x1="470" y1="560" x2="690" y2="640" />
+          <line x1="690" y1="640" x2="930" y2="580" />
+          <circle cx="120" cy="140" r="3" />
+          <circle cx="380" cy="240" r="3.5" />
+          <circle cx="620" cy="180" r="3" />
+          <circle cx="860" cy="280" r="3.5" />
+          <circle cx="1040" cy="220" r="3" />
+          <circle cx="260" cy="430" r="3.2" />
+          <circle cx="520" cy="360" r="3.5" />
+          <circle cx="740" cy="470" r="3.2" />
+          <circle cx="980" cy="390" r="3" />
+          <circle cx="210" cy="640" r="3" />
+          <circle cx="470" cy="560" r="3.5" />
+          <circle cx="690" cy="640" r="3.2" />
+          <circle cx="930" cy="580" r="3" />
+        </g>
+      </svg>
+    </>
+  );
+}
+
+function LoginView({ onLogin }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("admin123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const result = await apiFetch("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
+      onLogin(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="relative min-h-full overflow-hidden px-4">
+      <CyberBackdrop />
+      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
+        <div className="w-full rounded-2xl border border-white/40 bg-white/92 p-8 shadow-2xl backdrop-blur-md fade-in">
+          <div className="mb-6 text-center">
+            <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
+              <Network size={20} />
+            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.26em] text-blue-800">IPDR INSIGHT</p>
+            <h1 className="mt-2 text-3xl font-bold heading-tight text-slate-900">Secure Access</h1>
+            <p className="mt-2 text-sm muted">Investigation dashboard authentication</p>
+          </div>
+          <form onSubmit={submit} className="space-y-4">
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              type="password"
+              className="w-full"
+            />
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            <button
+              disabled={loading}
+              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
+              style={{ backgroundColor: ACCENT }}
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function BootScreen({ message, progress }) {
@@ -315,7 +516,7 @@ function UploadDropzone({ onFile }) {
   );
 }
 
-function DashboardView({ token }) {
+function DashboardView({ token, onOpenCasePicker }) {
   const [summary, setSummary] = useState(null);
   const [network, setNetwork] = useState({ nodes: [], edges: [] });
   const [timeline, setTimeline] = useState([]);
@@ -324,11 +525,22 @@ function DashboardView({ token }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [focusedNode, setFocusedNode] = useState(null);
+  const [topFilter, setTopFilter] = useState("all");
 
   const riskLookup = useMemo(
     () => Object.fromEntries(topFlagged.map((r) => [r.a_party, r.risk_level])),
     [topFlagged]
   );
+
+  const filteredTopFlagged = useMemo(() => {
+    return topFlagged.filter((row) => {
+      const source = flagSource(row);
+      if (topFilter === "auto") return source === "auto";
+      if (topFilter === "manual") return source === "manual";
+      if (topFilter === "blacklist") return source === "blacklist";
+      return true;
+    });
+  }, [topFlagged, topFilter]);
 
   async function load() {
     setError("");
@@ -432,6 +644,17 @@ function DashboardView({ token }) {
 
           <div className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged A-parties</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[["all", "All"], ["auto", "Auto"], ["manual", "Manual"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setTopFilter(key)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 space-y-3">
               {loading ? (
                 <>
@@ -440,7 +663,7 @@ function DashboardView({ token }) {
                   <Skeleton className="h-20" />
                 </>
               ) : (
-                topFlagged.slice(0, 6).map((row) => (
+                filteredTopFlagged.slice(0, 6).map((row) => (
                   <button
                     key={row.a_party}
                     onClick={() => setFocusedNode(row.a_party)}
@@ -448,7 +671,15 @@ function DashboardView({ token }) {
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-800">{row.a_party}</span>
-                      <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${riskTone(row.risk_level)}`}>{row.risk_level}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${riskTone(row.risk_level)}`}>{row.risk_level}</span>
+                        {row.blacklist_matches?.length ? (
+                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${blacklistTone()}`}>Blacklist Match</span>
+                        ) : null}
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
+                        </span>
+                      </div>
                     </div>
                     <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties</p>
                   </button>
@@ -516,7 +747,7 @@ function DashboardView({ token }) {
   );
 }
 
-function SearchView({ token }) {
+function SearchView({ token, onOpenCasePicker }) {
   const [form, setForm] = useState({
     query: "",
     start_date: "",
@@ -536,6 +767,8 @@ function SearchView({ token }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
+  const [reportData, setReportData] = useState(null);
+  const reportRef = useRef(null);
 
   async function runSearch(nextPage = 1) {
     setLoading(true);
@@ -587,8 +820,16 @@ function SearchView({ token }) {
   }
 
   async function exportPdf(aParty) {
-    const blob = await apiFetch(`/export/pdf?query=${encodeURIComponent(aParty)}`, {}, token);
-    downloadBlob(blob, `${aParty}_investigation.pdf`);
+    try {
+      const detail = selected && selected.a_party === aParty ? selected : await apiFetch(`/investigation/${encodeURIComponent(aParty)}`, {}, token);
+      setReportData(detail);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await exportReportPdf(reportRef.current, `IPDR_Report_${String(aParty).replace(/[^A-Za-z0-9_-]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReportData(null);
+    }
   }
 
   async function openInvestigation(aParty) {
@@ -605,7 +846,7 @@ function SearchView({ token }) {
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
       <section className="card p-5">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number, IP, IMEI or Cell-ID" />
+          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number or IP" />
           <input value={form.start_date} onChange={(e) => update("start_date", e.target.value)} type="datetime-local" />
           <input value={form.end_date} onChange={(e) => update("end_date", e.target.value)} type="datetime-local" />
           <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" />
@@ -655,10 +896,18 @@ function SearchView({ token }) {
                     <td className="px-3 py-3">{Math.round(row.total_duration_sec)}</td>
                     <td className="px-3 py-3">{row.first_seen}</td>
                     <td className="px-3 py-3">{row.last_seen}</td>
-                    <td className="px-3 py-3"><span className={`rounded-lg border px-2 py-1 text-xs ${riskTone(row.risk.level)}`}>{row.risk.level}</span></td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-lg border px-2 py-1 text-xs ${riskTone(row.risk.level)}`}>{row.risk.level}</span>
+                        {row.blacklist_matches?.length ? <span className={`rounded-lg border px-2 py-1 text-xs ${blacklistTone()}`}>Blacklist Match</span> : null}
+                        <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={row.risk} />
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-2">
                         <button onClick={() => openInvestigation(row.a_party)} className="text-sm font-medium" style={{ color: ACCENT }}>Investigate</button>
+                        <button onClick={() => onOpenCasePicker?.(row.a_party)} className="text-sm font-medium text-indigo-700">Add A</button>
+                        {row.b_party_ip || row.b_party_number ? <button onClick={() => onOpenCasePicker?.(row.b_party_ip || row.b_party_number)} className="text-sm font-medium text-indigo-700">Add B</button> : null}
                         <button onClick={() => exportPdf(row.a_party)} className="text-sm font-medium text-amber-700">PDF</button>
                       </div>
                     </td>
@@ -679,9 +928,16 @@ function SearchView({ token }) {
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-2xl fade-in">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-bold heading-tight text-slate-900">Investigation summary: {selected.a_party}</h3>
-              <button onClick={() => setSelected(null)} className="text-sm muted">Close</button>
+              <div className="flex items-center gap-3">
+                <button onClick={() => onOpenCasePicker?.(selected.a_party)} className="text-sm font-medium text-indigo-700">Add to Case</button>
+                <button onClick={() => exportPdf(selected.a_party)} className="text-sm font-medium text-amber-700">Export Report (PDF)</button>
+                <button onClick={() => setSelected(null)} className="text-sm muted">Close</button>
+              </div>
             </div>
-            <p className="mt-2 text-sm muted">Risk: <span className="font-semibold text-slate-800">{selected.risk.level}</span> ({selected.risk.score})</p>
+            <p className="mt-2 text-sm muted">Risk: <span className="font-semibold text-slate-800">{selected.risk.level}</span> ({selected.risk.score}) {selected.blacklist_matches?.length ? <span className={`ml-2 rounded-lg border px-2 py-0.5 text-xs ${blacklistTone()}`}>Blacklist Match</span> : null}</p>
+            <div className="mt-2">
+              <WhyFlaggedPopover details={selected.risk_details || selected.flags || []} risk={selected.risk} />
+            </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {selected.flags.map((flag) => (
                 <div key={flag.type} className={`rounded-xl border border-l-4 bg-white p-4 ${riskBorder(flag.severity === "high" ? "High" : flag.severity === "medium" ? "Medium" : "Low")}`}>
@@ -690,37 +946,11 @@ function SearchView({ token }) {
                 </div>
               ))}
             </div>
-            {selected.device_profile && (selected.device_profile.imeis?.length || selected.device_profile.imsis?.length || selected.device_profile.cell_ids?.length) ? (
-              <div className="mt-6">
-                <h4 className="text-sm font-semibold text-slate-900">Device &amp; location profile</h4>
-                <div className="mt-2 overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="text-slate-600">
-                      <tr>
-                        <th className="border-b border-slate-200 px-3 py-2">Type</th>
-                        <th className="border-b border-slate-200 px-3 py-2">Value</th>
-                        <th className="border-b border-slate-200 px-3 py-2">Sessions</th>
-                        <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
-                        <th className="border-b border-slate-200 px-3 py-2">Last Seen</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[["IMEI", selected.device_profile.imeis], ["IMSI", selected.device_profile.imsis], ["Cell ID", selected.device_profile.cell_ids]].flatMap(([label, items]) =>
-                        (items || []).slice(0, 10).map((item) => (
-                          <tr key={`${label}-${item.value}`} className="border-b border-slate-100">
-                            <td className="px-3 py-2">{label}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{item.value}</td>
-                            <td className="px-3 py-2">{item.count}</td>
-                            <td className="px-3 py-2">{item.first_seen}</td>
-                            <td className="px-3 py-2">{item.last_seen}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {selected.blacklist_matches?.map((match) => (
+                <span key={`${match.value}-${match.label}`} className={`rounded-lg border px-2 py-1 text-xs ${blacklistTone()}`}>{match.label}</span>
+              ))}
+            </div>
             <div className="mt-6 overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="text-slate-600">
@@ -730,6 +960,7 @@ function SearchView({ token }) {
                     <th className="border-b border-slate-200 px-3 py-2">Duration</th>
                     <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
                     <th className="border-b border-slate-200 px-3 py-2">Last Seen</th>
+                    <th className="border-b border-slate-200 px-3 py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -740,6 +971,9 @@ function SearchView({ token }) {
                       <td className="px-3 py-3">{Math.round(item.total_duration_sec)}</td>
                       <td className="px-3 py-3">{item.first_seen}</td>
                       <td className="px-3 py-3">{item.last_seen}</td>
+                      <td className="px-3 py-3">
+                        {(item.b_party_ip || item.b_party_number) ? <button onClick={() => onOpenCasePicker?.(item.b_party_ip || item.b_party_number)} className="text-sm font-medium text-indigo-700">Add to Case</button> : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -748,6 +982,400 @@ function SearchView({ token }) {
           </div>
         </div>
       ) : null}
+      {reportData ? (
+        <div className="fixed left-[-9999px] top-0 w-[900px] bg-white p-6 text-slate-900" ref={reportRef}>
+          <ReportSheet data={reportData} kind="subject" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReportSheet({ data, kind }) {
+  const title = kind === "case" ? data.name : `Investigation Summary: ${data.a_party || data.subject}`;
+  const summary = kind === "case" ? data.summary : {
+    total_interactions: data.interactions?.length || 0,
+    risk_score: data.risk?.score || 0,
+    flag_count: data.flags?.length || 0,
+  };
+  const flags = kind === "case"
+    ? (data.parties || []).flatMap((party) => (party.risk_details || []).map((detail) => ({ ...detail, subject: party.subject })))
+    : (data.risk_details || data.flags || []);
+  const network = kind === "case" ? data.network : { nodes: [], edges: [] };
+  const interactionRows = kind === "case" ? (data.parties || []).flatMap((party) => party.records || []) : (data.interactions || []);
+  return (
+    <div className="space-y-4 bg-white p-6 text-slate-900">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-800">IPDR Insight</p>
+        <h1 className="mt-2 text-2xl font-bold heading-tight">{title}</h1>
+        <p className="mt-1 text-xs text-slate-500">Generated {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Total interactions</p><p className="mt-2 text-2xl font-bold">{summary.total_interactions || 0}</p></div>
+        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Risk score</p><p className="mt-2 text-2xl font-bold">{summary.risk_score || 0}</p></div>
+        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Flag count</p><p className="mt-2 text-2xl font-bold">{summary.flag_count || 0}</p></div>
+      </div>
+      <div className="rounded-xl border border-slate-200 p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Flags</h2>
+        <ul className="mt-3 space-y-2 text-sm">
+          {flags.length ? flags.map((flag, index) => (
+            <li key={`${flag.type || flag.message}-${index}`} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
+              <span>{flag.subject ? `${flag.subject}: ` : ""}{flag.message} <span className="font-semibold">→ +{flag.points ?? 0}</span></span>
+            </li>
+          )) : <li className="text-slate-500">No triggered rules.</li>}
+        </ul>
+      </div>
+      <div className="rounded-xl border border-slate-200 p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Key interactions</h2>
+        <table className="mt-3 min-w-full text-left text-sm">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="border-b border-slate-200 px-2 py-2">A-party</th>
+              <th className="border-b border-slate-200 px-2 py-2">B-party</th>
+              <th className="border-b border-slate-200 px-2 py-2">Timestamp</th>
+              <th className="border-b border-slate-200 px-2 py-2">Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {interactionRows.slice(0, 12).map((row, index) => (
+              <tr key={index}>
+                <td className="border-b border-slate-100 px-2 py-2">{row.a_party || data.a_party || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-2">{row.b_party_ip || row.b_party_number || row.subject || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-2">{row.timestamp || row.first_seen || row.created_at || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-2">{Math.round(row.duration_sec || row.total_duration_sec || 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {kind === "case" ? (
+        <div className="rounded-xl border border-slate-200 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Case network</h2>
+          <div className="mt-3 bg-white">
+            <NetworkGraph nodes={network.nodes || []} edges={network.edges || []} riskLookup={{}} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CasePickerModal({ token, subject, onClose, onAssigned }) {
+  const [cases, setCases] = useState([]);
+  const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState("Open");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch("/cases", {}, token)
+      .then(setCases)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  async function assignToCase(caseId) {
+    const result = await apiFetch(`/cases/${caseId}/parties`, {
+      method: "POST",
+      body: JSON.stringify({ subject, subject_type: subjectType(subject) }),
+    }, token);
+    onAssigned?.(result);
+    onClose();
+  }
+
+  async function createAndAssign() {
+    const created = await apiFetch("/cases", {
+      method: "POST",
+      body: JSON.stringify({ name, description, status }),
+    }, token);
+    await assignToCase(created.id);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-6 shadow-2xl fade-in">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-xl font-bold heading-tight text-slate-900">Add to Case</h3>
+            <p className="text-sm muted">Assign {subjectLabel(subject)} to an existing case or create a new one.</p>
+          </div>
+          <button onClick={onClose} className="text-sm muted">Close</button>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-slate-800">Existing cases</p>
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {loading ? <Skeleton className="h-20" /> : cases.length ? cases.map((item) => (
+                <button key={item.id} onClick={() => setSelectedCaseId(String(item.id))} className={`w-full rounded-xl border p-3 text-left ${selectedCaseId === String(item.id) ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
+                  <div className="flex items-center justify-between"><span className="font-semibold text-slate-800">{item.name}</span><span className="text-xs muted">{item.status}</span></div>
+                  <p className="mt-1 text-xs muted">{item.party_count} linked parties</p>
+                </button>
+              )) : <p className="text-sm muted">No cases yet.</p>}
+            </div>
+            <button disabled={!selectedCaseId} onClick={() => assignToCase(selectedCaseId)} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
+              Assign to selected case
+            </button>
+          </div>
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-slate-800">Create new case</p>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Case name" className="w-full" />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" className="w-full min-h-28" />
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full">
+              <option>Open</option>
+              <option>Closed</option>
+            </select>
+            <button disabled={!name.trim()} onClick={createAndAssign} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
+              Create case and add subject
+            </button>
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CasesView({ token, onOpenCasePicker }) {
+  const [cases, setCases] = useState([]);
+  const [selectedCase, setSelectedCase] = useState(null);
+  const [caseName, setCaseName] = useState("");
+  const [caseDescription, setCaseDescription] = useState("");
+  const [caseStatus, setCaseStatus] = useState("Open");
+  const [note, setNote] = useState("");
+  const [subject, setSubject] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [reportData, setReportData] = useState(null);
+  const reportRef = useRef(null);
+
+  async function loadCases() {
+    const result = await apiFetch("/cases", {}, token);
+    setCases(result);
+    setLoading(false);
+  }
+
+  async function loadCaseDetail(caseId) {
+    setLoading(true);
+    try {
+      const result = await apiFetch(`/cases/${caseId}`, {}, token);
+      setSelectedCase(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCases().catch((err) => setError(err.message));
+  }, [token]);
+
+  async function createCase() {
+    const created = await apiFetch("/cases", { method: "POST", body: JSON.stringify({ name: caseName, description: caseDescription, status: caseStatus }) }, token);
+    setCaseName("");
+    setCaseDescription("");
+    setCaseStatus("Open");
+    await loadCases();
+    await loadCaseDetail(created.id);
+  }
+
+  async function addSubject() {
+    if (!selectedCase || !subject.trim()) return;
+    const result = await apiFetch(`/cases/${selectedCase.id}/parties`, { method: "POST", body: JSON.stringify({ subject, subject_type: subjectType(subject) }) }, token);
+    setSelectedCase(result);
+    setSubject("");
+    await loadCases();
+  }
+
+  async function addNote() {
+    if (!selectedCase || !note.trim()) return;
+    const result = await apiFetch(`/cases/${selectedCase.id}/notes`, { method: "POST", body: JSON.stringify({ note }) }, token);
+    setSelectedCase(result);
+    setNote("");
+    await loadCases();
+  }
+
+  async function exportCasePdf() {
+    setReportData(selectedCase);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await exportReportPdf(reportRef.current, `IPDR_Report_${String(selectedCase?.name || "case").replace(/[^A-Za-z0-9_-]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    setReportData(null);
+  }
+
+  return (
+    <div className="space-y-6 fade-in">
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      <section className="card p-5">
+        <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_0.7fr_auto]">
+          <input value={caseName} onChange={(e) => setCaseName(e.target.value)} placeholder="Case name" />
+          <input value={caseDescription} onChange={(e) => setCaseDescription(e.target.value)} placeholder="Description" />
+          <select value={caseStatus} onChange={(e) => setCaseStatus(e.target.value)}>
+            <option>Open</option>
+            <option>Closed</option>
+          </select>
+          <button onClick={createCase} disabled={!caseName.trim()} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
+            <FolderPlus size={16} className="mr-2 inline" />Create Case
+          </button>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-1 space-y-3">
+          {loading ? <Skeleton className="h-40" /> : cases.map((item) => (
+            <button key={item.id} onClick={() => loadCaseDetail(item.id)} className={`w-full rounded-xl border p-4 text-left shadow-sm ${selectedCase?.id === item.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-slate-800">{item.name}</span>
+                <span className={`rounded-lg border px-2 py-0.5 text-xs ${item.status === "Closed" ? "border-slate-300 bg-slate-100 text-slate-700" : "border-blue-200 bg-blue-50 text-blue-700"}`}>{item.status}</span>
+              </div>
+              <p className="mt-2 text-xs muted">{item.party_count} linked parties</p>
+              <p className="mt-1 text-xs muted">Last updated: {item.last_updated}</p>
+            </button>
+          ))}
+        </div>
+        <div className="xl:col-span-2">
+          {selectedCase ? (
+            <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold heading-tight text-slate-900">{selectedCase.name}</h2>
+                  <p className="mt-1 text-sm muted">{selectedCase.description || "No description"}</p>
+                  <p className="mt-2 text-xs muted">Status: {selectedCase.status} · Created {selectedCase.created_at}</p>
+                </div>
+                <div className="flex gap-2">
+                  {selectedCase.parties?.[0]?.subject ? (
+                    <button onClick={onOpenCasePicker ? () => onOpenCasePicker(selectedCase.parties[0].subject) : undefined} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">Add to Case</button>
+                  ) : null}
+                  <button onClick={exportCasePdf} className="rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Export Report (PDF)</button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Linked parties</h3>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {(selectedCase.parties || []).map((party) => (
+                    <div key={party.subject} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-800">{subjectLabel(party.subject)}</span>
+                        <span className={`rounded-lg border px-2 py-0.5 text-xs ${party.blacklist_matches?.length ? blacklistTone() : riskTone(party.risk.level)}`}>{party.blacklist_matches?.length ? "Blacklist Match" : party.risk.level}</span>
+                      </div>
+                      <p className="mt-1 text-xs muted">{party.status} · {party.interaction_count} interactions</p>
+                      <WhyFlaggedPopover details={party.risk_details || party.flags || []} risk={party.risk} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Mini network graph</h3>
+                  <div className="mt-3">
+                    <NetworkGraph nodes={selectedCase.network?.nodes || []} edges={selectedCase.network?.edges || []} riskLookup={Object.fromEntries((selectedCase.parties || []).map((party) => [party.subject, party.risk.level]))} />
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Add linked party</h3>
+                    <div className="mt-2 flex gap-2">
+                      <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Number or IP" className="flex-1" />
+                      <button onClick={addSubject} disabled={!subject.trim()} className="rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Add</button>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Notes & timeline</h3>
+                    <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add investigator note..." className="mt-2 min-h-24 w-full" />
+                    <button onClick={addNote} disabled={!note.trim()} className="mt-2 rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Add note</button>
+                    <div className="mt-3 space-y-2">
+                      {(selectedCase.notes || []).slice().reverse().map((item) => (
+                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex items-center gap-2 text-xs muted"><Clock3 size={12} />{item.created_at}</div>
+                          <p className="mt-1 text-sm text-slate-800">{item.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm muted">Select a case to open the case detail page.</div>
+          )}
+        </div>
+      </section>
+
+      {reportData ? (
+        <div className="fixed left-[-9999px] top-0 w-[900px] bg-white p-6 text-slate-900" ref={reportRef}>
+          <ReportSheet data={reportData} kind="case" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BlacklistView({ token }) {
+  const [entries, setEntries] = useState([]);
+  const [value, setValue] = useState("");
+  const [valueType, setValueType] = useState("any");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/blacklist", {}, token)
+      .then(setEntries)
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  async function addEntry() {
+    try {
+      await apiFetch("/blacklist", { method: "POST", body: JSON.stringify({ value, value_type: valueType, label }) }, token);
+      setValue("");
+      setLabel("");
+      const updated = await apiFetch("/blacklist", {}, token);
+      setEntries(updated);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removeEntry(entryId) {
+    await apiFetch(`/blacklist/${entryId}`, { method: "DELETE" }, token);
+    setEntries(await apiFetch("/blacklist", {}, token));
+  }
+
+  return (
+    <div className="space-y-6 fade-in">
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      <section className="card p-5">
+        <div className="grid gap-3 md:grid-cols-[1fr_0.5fr_1.2fr_auto]">
+          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="IP or number" />
+          <select value={valueType} onChange={(e) => setValueType(e.target.value)}>
+            <option value="any">Any</option>
+            <option value="ip">IP</option>
+            <option value="number">Number</option>
+          </select>
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Reason / label" />
+          <button onClick={addEntry} disabled={!value.trim() || !label.trim()} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
+            <ShieldAlert size={16} className="mr-2 inline" />Add to blacklist
+          </button>
+        </div>
+      </section>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {entries.map((entry) => (
+          <div key={entry.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{entry.value}</p>
+                <p className="mt-1 text-xs muted">{entry.value_type} · {entry.label}</p>
+              </div>
+              <button onClick={() => removeEntry(entry.id)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </section>
     </div>
   );
 }
@@ -787,8 +1415,6 @@ function SettingsView({ token }) {
     ["distinct_window_minutes", "Distinct B-party window (min)"],
     ["distinct_b_threshold", "Distinct B-party threshold"],
     ["shared_bparty_threshold", "Shared B-party threshold"],
-    ["device_churn_imei_threshold", "IMEIs per number threshold"],
-    ["shared_imei_party_threshold", "Numbers per IMEI threshold"],
     ["graph_limit", "Graph record limit"],
   ];
 
@@ -818,9 +1444,12 @@ function SettingsView({ token }) {
 
 function Shell({ token, username, onLogout }) {
   const [view, setView] = useState("dashboard");
+  const [casePickerSubject, setCasePickerSubject] = useState("");
   const menu = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "cases", label: "Cases", icon: Folder },
     { id: "search", label: "Search", icon: Search },
+    { id: "blacklist", label: "Blacklist", icon: ShieldAlert },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
@@ -878,10 +1507,21 @@ function Shell({ token, username, onLogout }) {
           </header>
 
           <div className="p-4 lg:p-8">
-            {view === "dashboard" ? <DashboardView token={token} /> : null}
-            {view === "search" ? <SearchView token={token} /> : null}
+            {view === "dashboard" ? <DashboardView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
+            {view === "cases" ? <CasesView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
+            {view === "search" ? <SearchView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
+            {view === "blacklist" ? <BlacklistView token={token} /> : null}
             {view === "settings" ? <SettingsView token={token} /> : null}
           </div>
+
+          {casePickerSubject ? (
+            <CasePickerModal
+              token={token}
+              subject={casePickerSubject}
+              onClose={() => setCasePickerSubject("")}
+              onAssigned={() => setCasePickerSubject("")}
+            />
+          ) : null}
 
           <footer className="border-t border-slate-200 bg-white px-4 py-4 text-xs muted lg:px-8">
             Data is handled per privacy-compliance guidelines for local investigative analysis demos.
