@@ -1,6 +1,6 @@
 # IPDR Insight
 
-IPDR Insight is a full-stack investigation prototype that uploads telecom IPDR logs, normalizes mixed operator formats, maps A-party to B-party communication patterns, and highlights suspicious behavior with configurable rule-based detection.
+IPDR Insight is a full-stack investigation prototype for telecom IPDR logs. It ingests mixed operator formats, keeps each upload in its own history, maps A-party to B-party communication patterns, highlights suspicious behavior with explainable risk scoring, and supports cases, blacklist management, and PDF export.
 
 ## Stack
 - Backend: FastAPI + pandas + SQLite
@@ -24,11 +24,11 @@ IPDR Insight is a full-stack investigation prototype that uploads telecom IPDR l
 6. **Build communication mapping tools**
    - Dashboard includes interaction tables and an A↔B force-directed graph.
 7. **Automate suspicious activity detection**
-   - Rules flag late-night frequency bursts, repeated short sessions, high fan-out A-parties, and shared hub B-parties.
+   - Rules flag late-night frequency bursts, repeated short sessions, high fan-out A-parties, and shared hub B-parties, with explainable reasons and blacklist matches.
 8. **Search and query**
-   - Search by number/IP with date, duration, type, flagged-only, and relevant-only filters; sortable paginated results.
+   - Search by number/IP with date, duration, type, flagged-only, and relevant-only filters; sortable paginated results scoped to a selected upload.
 9. **User dashboard**
-   - Summary cards, timeline chart, top risk list, upload summary, and investigation modal report.
+   - Summary cards, timeline chart, top risk list, upload summary, past logs, case tracking, blacklist management, and investigation modal report.
 10. **Security and compliance**
    - JWT-based auth, configurable token expiry, configurable CORS origins, and a clear local-demo compliance notice.
 
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The backend auto-loads `sample_data/sample_ipdr_data.csv` on startup if the database is empty.
+The app now starts empty by default. Upload your own CSV, TXT, or JSON IPDR dataset from the UI to create a separate log history entry.
 
 ### 2) Frontend
 ```bash
@@ -62,6 +62,20 @@ Open the Vite URL in your browser and log in with:
 - **Frontend (Vercel):** set root directory to `frontend`
 - **Frontend API URL:** `VITE_API_URL=https://<your-backend-domain>`
 
+## Validation
+
+The current codebase was verified with:
+
+```bash
+cd backend
+python3 -m py_compile app/*.py
+
+cd ../frontend
+npm run build
+```
+
+A live smoke test also confirmed an empty startup state, upload creation, upload-scoped search, and upload history listing.
+
 ## UI/UX design notes
 
 - Light professional interface (`#f8fafc` background, white cards, deep blue accent `#1e40af`)
@@ -69,7 +83,7 @@ Open the Vite URL in your browser and log in with:
 - Stat cards with left accents + icons (Database, Users, Network, AlertTriangle)
 - Interactive network graph with zoom/pan, legend, tooltips, and reset view
 - Clickable top-flagged cards that focus corresponding graph nodes
-- Drag-and-drop upload zone and loading skeletons for smoother state transitions
+- Drag-and-drop upload zone, past logs view, and loading skeletons for smoother state transitions
 
 ## Data handling note
-This prototype is intended for locally uploaded sample data only. It does not connect to external services or implement live surveillance.
+This prototype is intended for locally uploaded datasets only. It does not connect to external services or implement live surveillance.
