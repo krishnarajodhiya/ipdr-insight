@@ -769,6 +769,7 @@ function SearchView({ token, onOpenCasePicker }) {
   const [selected, setSelected] = useState(null);
   const [reportData, setReportData] = useState(null);
   const reportRef = useRef(null);
+  const [selectedUploadId, setSelectedUploadId] = useState("");
 
   async function runSearch(nextPage = 1) {
     setLoading(true);
@@ -778,6 +779,7 @@ function SearchView({ token, onOpenCasePicker }) {
       Object.entries(form).forEach(([key, value]) => {
         if (value !== "" && value !== false) params.set(key, value);
       });
+      if (selectedUploadId) params.set("upload_id", selectedUploadId);
       params.set("page", String(nextPage));
       params.set("page_size", String(pageSize));
       params.set("sort_by", sortBy);
@@ -852,6 +854,7 @@ function SearchView({ token, onOpenCasePicker }) {
           <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" />
           <input value={form.min_duration} onChange={(e) => update("min_duration", e.target.value)} placeholder="Min duration" type="number" />
           <input value={form.max_duration} onChange={(e) => update("max_duration", e.target.value)} placeholder="Max duration" type="number" />
+          <input value={selectedUploadId} onChange={(e) => setSelectedUploadId(e.target.value)} placeholder="Upload ID" type="number" />
           <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />Flagged only</label>
           <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />Relevant only</label>
           <div className="flex gap-2">
@@ -1380,6 +1383,153 @@ function BlacklistView({ token }) {
   );
 }
 
+function LogsView({ token }) {
+  const [uploads, setUploads] = useState([]);
+  const [selectedUpload, setSelectedUpload] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadUploads() {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await apiFetch("/uploads", {}, token);
+      setUploads(result);
+      if (result.length && !selectedUpload) {
+        await openUpload(result[0].id);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openUpload(uploadId) {
+    setDetailLoading(true);
+    try {
+      const result = await apiFetch(`/uploads/${uploadId}`, {}, token);
+      setSelectedUpload(result);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUploads();
+  }, [token]);
+
+  return (
+    <div className="space-y-6 fade-in">
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      <section className="grid gap-4 xl:grid-cols-[340px_1fr]">
+        <div className="card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Past Logs</h2>
+              <p className="text-sm muted">Every uploaded dataset stays separated here.</p>
+            </div>
+            <button onClick={loadUploads} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">Refresh</button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : uploads.length ? (
+              uploads.map((upload) => (
+                <button
+                  key={upload.id}
+                  onClick={() => openUpload(upload.id)}
+                  className={`w-full rounded-xl border p-4 text-left shadow-sm ${selectedUpload?.upload?.id === upload.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-slate-800">{upload.filename}</p>
+                      <p className="mt-1 text-xs muted">{upload.file_type.toUpperCase()} · {upload.record_count || upload.valid_rows} records · {upload.error_rows} errors</p>
+                    </div>
+                    <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">{upload.created_at}</span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm muted">No uploaded logs yet. Upload a file from the dashboard to begin.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="card p-5">
+          {detailLoading ? (
+            <Skeleton className="h-72 w-full" />
+          ) : selectedUpload ? (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-bold heading-tight text-slate-900">{selectedUpload.upload.filename}</h2>
+                  <p className="text-sm muted">Stored separately as its own dataset in the database.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs muted">Valid rows</p><p className="text-lg font-semibold text-slate-900">{selectedUpload.upload.valid_rows}</p></div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs muted">Errors</p><p className="text-lg font-semibold text-slate-900">{selectedUpload.upload.error_rows}</p></div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <StatCard label="Total rows" value={selectedUpload.upload.total_rows} icon={FileText} accent="#1e40af" />
+                <StatCard label="Records stored" value={selectedUpload.records.length} icon={Database} accent="#1e40af" />
+                <StatCard label="Parse errors" value={selectedUpload.errors.length} icon={AlertTriangle} accent="#b91c1c" />
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Records</h3>
+                  <div className="mt-3 max-h-[420px] overflow-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-slate-50 text-slate-600">
+                        <tr>
+                          <th className="border-b border-slate-200 px-3 py-2">A-party</th>
+                          <th className="border-b border-slate-200 px-3 py-2">B-party</th>
+                          <th className="border-b border-slate-200 px-3 py-2">Timestamp</th>
+                          <th className="border-b border-slate-200 px-3 py-2">Duration</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedUpload.records.map((row) => (
+                          <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="px-3 py-2">{row.a_party}</td>
+                            <td className="px-3 py-2">{row.b_party_ip || row.b_party_number}</td>
+                            <td className="px-3 py-2">{row.timestamp}</td>
+                            <td className="px-3 py-2">{Math.round(row.duration_sec || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Parse errors</h3>
+                  <div className="mt-3 space-y-2 max-h-[420px] overflow-auto">
+                    {selectedUpload.errors.length ? selectedUpload.errors.map((err) => (
+                      <div key={err.id} className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        <p className="font-semibold">Row {err.row_index}</p>
+                        <p className="mt-1">{err.message}</p>
+                      </div>
+                    )) : <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm muted">No parse errors for this dataset.</div>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm muted">Select a dataset to inspect its records.</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SettingsView({ token }) {
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState("");
@@ -1447,6 +1597,7 @@ function Shell({ token, username, onLogout }) {
   const [casePickerSubject, setCasePickerSubject] = useState("");
   const menu = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "logs", label: "Past Logs", icon: FileText },
     { id: "cases", label: "Cases", icon: Folder },
     { id: "search", label: "Search", icon: Search },
     { id: "blacklist", label: "Blacklist", icon: ShieldAlert },
@@ -1508,6 +1659,7 @@ function Shell({ token, username, onLogout }) {
 
           <div className="p-4 lg:p-8">
             {view === "dashboard" ? <DashboardView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
+            {view === "logs" ? <LogsView token={token} /> : null}
             {view === "cases" ? <CasesView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
             {view === "search" ? <SearchView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
             {view === "blacklist" ? <BlacklistView token={token} /> : null}

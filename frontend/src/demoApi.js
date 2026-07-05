@@ -174,7 +174,9 @@ function buildRecords() {
   return rows;
 }
 
-const records = buildRecords();
+const records = [];
+let uploads = [];
+let nextUploadId = 1;
 
 function recordMatchesFilters(record, filters = {}) {
   if (filters.query) {
@@ -216,6 +218,110 @@ function getSubjectValue(record) {
 
 function relatedRecordsForSubject(subject) {
   return records.filter((record) => record.a_party === subject || getSubjectValue(record) === subject);
+}
+
+function detectDelimiter(sample) {
+  const delimiters = [",", "\t", "|", ";"];
+  let best = ",";
+  let bestScore = -1;
+  delimiters.forEach((delimiter) => {
+    const score = (sample.split(delimiter).length - 1) + (sample.includes(delimiter) ? 1 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = delimiter;
+    }
+  });
+  return best;
+}
+
+function looksLikeHeader(tokens) {
+  return tokens.some((token) => /party|number|ip|time|date|duration|session|port|type|call/i.test(String(token || "")));
+}
+
+function normalizeRow(raw) {
+  const normalized = {};
+  Object.entries(raw || {}).forEach(([key, value]) => {
+    normalized[normalizeKey(key)] = value;
+  });
+  const pick = (keys) => {
+    for (const key of keys) {
+      if (normalized[key] !== undefined && normalized[key] !== "") return normalized[key];
+    }
+    return "";
+  };
+  let a_party = pick(["a_party", "a_party_number", "calling_number", "caller_id", "caller", "msisdn", "source_number"]);
+  let b_party_ip = pick(["b_party_ip", "destination_ip", "dest_ip", "recipient_ip", "remote_ip", "ip", "server_ip"]);
+  let b_party_number = pick(["b_party_number", "called_number", "destination_number", "dest_number", "callee", "recipient_number", "to_number"]);
+  let timestamp = pick(["timestamp", "datetime", "date_time", "event_time", "call_time", "start_time", "session_start", "time"]);
+  let duration_sec = pick(["duration_sec", "duration", "call_duration", "seconds", "elapsed", "session_duration"]);
+  let port = pick(["port", "dst_port", "destination_port", "remote_port", "server_port"]);
+  let session_type = pick(["session_type", "type", "connection_type", "service_type", "protocol"]) || "unknown";
+  if (!a_party) {
+    a_party = Object.values(raw || {}).find((value) => /^\d{7,}$/.test(String(value || "").replace(/\D/g, ""))) || "";
+  }
+  if (!b_party_ip) {
+    b_party_ip = Object.values(raw || {}).find((value) => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(value || "").trim())) || "";
+  }
+  if (!b_party_number) {
+    b_party_number = Object.values(raw || {}).find((value) => /^\d{7,}$/.test(String(value || "").replace(/\D/g, "")) && String(value || "") !== String(a_party || "")) || "";
+  }
+  if (!timestamp) {
+    timestamp = Object.values(raw || {}).find((value) => !Number.isNaN(new Date(String(value).replace(" ", "T")).getTime())) || "";
+  }
+  return {
+    a_party: String(a_party).trim(),
+    b_party_ip: String(b_party_ip).trim(),
+    b_party_number: String(b_party_number).trim(),
+    timestamp: String(timestamp).trim(),
+    duration_sec: Number(duration_sec || 0),
+    port: String(port).trim(),
+    data_volume: null,
+    session_type: String(session_type).trim() || "unknown",
+  };
+}
+
+function parseDelimitedText(text, fileName) {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const delimiter = detectDelimiter(lines[0]);
+  const headers = lines[0].split(delimiter).map((part) => normalizeKey(part));
+  const headerRows = looksLikeHeader(headers);
+  const dataLines = headerRows ? lines.slice(1) : lines;
+  return dataLines.map((line, index) => {
+    const cols = line.split(delimiter);
+    const raw = {};
+    if (headerRows) {
+      headers.forEach((header, headerIndex) => {
+        raw[header] = cols[headerIndex] || "";
+      });
+    } else {
+      cols.forEach((value, columnIndex) => {
+        raw[`column_${columnIndex}`] = value || "";
+      });
+    }
+    return normalizeRow(raw);
+  }).filter((row) => row.a_party && row.timestamp && (row.b_party_ip || row.b_party_number));
+}
+
+function storeUpload(filename, fileType, rows, errors = []) {
+  const now = iso(new Date());
+  const upload = {
+    id: nextUploadId++,
+    filename,
+    file_type: fileType,
+    total_rows: rows.length + errors.length,
+    valid_rows: rows.length,
+    error_rows: errors.length,
+    date_min: rows[0]?.timestamp || null,
+    date_max: rows.at(-1)?.timestamp || null,
+    created_at: now,
+    record_count: rows.length,
+  };
+  uploads = [upload, ...uploads];
+  rows.forEach((row, index) => {
+    records.unshift({ ...row, upload_id: upload.id, source_file: filename, row_index: index + 1 });
+  });
+  return upload;
 }
 
 function buildPartyProfile(subject, flagged) {
@@ -585,6 +691,7 @@ const demo = {
   async search(query = {}) {
     const flagged = computeFlags(records);
     let items = filterRecords(query);
+    if (query.upload_id) items = items.filter((r) => Number(r.upload_id || 0) === Number(query.upload_id));
     if (query.relevant_only === "true" || query.relevant_only === true) items = items.filter(isRelevantRecord);
     if (query.flagged_only) items = items.filter((r) => flagged.riskByA[r.a_party]);
     items = items.map((r) => ({
@@ -600,6 +707,7 @@ const demo = {
   async interactions(query = {}) {
     const flagged = computeFlags(records);
     let rows = filterRecords(query);
+    if (query.upload_id) rows = rows.filter((r) => Number(r.upload_id || 0) === Number(query.upload_id));
     if (query.relevant_only === "true" || query.relevant_only === true) rows = rows.filter(isRelevantRecord);
     if (query.a_party) rows = rows.filter((r) => r.a_party === query.a_party);
     if (query.b_party) rows = rows.filter((r) => (r.b_party_ip || r.b_party_number) === query.b_party);
@@ -620,6 +728,18 @@ const demo = {
       return settings;
     }
     return settings;
+  },
+  async uploads(method) {
+    if (method !== "GET") return uploads;
+    return uploads;
+  },
+  async uploadDetail(method, path) {
+    if (method !== "GET") return { upload: null, records: [], errors: [] };
+    const uploadId = Number(path.split("/")[2]);
+    const upload = uploads.find((item) => item.id === uploadId);
+    if (!upload) throw new Error("Upload not found");
+    const relatedRecords = records.filter((item) => Number(item.upload_id || 0) === uploadId);
+    return { upload, records: relatedRecords, errors: [] };
   },
   async cases(method, payload) {
     if (method === "POST" && payload) return createCase(payload);
@@ -668,7 +788,30 @@ const demo = {
     return new Blob([`IPDR Insight investigation summary for ${query}`], { type: "application/pdf" });
   },
   async upload(body) {
-    return parseUpload(body);
+    const file = body instanceof FormData ? body.get("file") : null;
+    if (!file) return { filename: "upload.csv", file_type: "csv", total_rows: 0, valid_rows: 0, error_rows: 0, date_min: null, date_max: null, errors: [] };
+    const text = await file.text();
+    let rows = [];
+    let fileType = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
+    if (fileType === "json") {
+      const parsed = JSON.parse(text);
+      const list = Array.isArray(parsed) ? parsed : parsed.records || parsed.rows || parsed.data || parsed.items || [];
+      rows = list.map((item) => normalizeRow(item));
+    } else {
+      rows = parseDelimitedText(text, file.name);
+    }
+    rows = rows.filter((row) => row.a_party && row.timestamp && (row.b_party_ip || row.b_party_number));
+    const upload = storeUpload(file.name, fileType, rows);
+    return {
+      filename: upload.filename,
+      file_type: upload.file_type,
+      total_rows: upload.total_rows,
+      valid_rows: upload.valid_rows,
+      error_rows: upload.error_rows,
+      date_min: upload.date_min,
+      date_max: upload.date_max,
+      errors: [],
+    };
   },
 };
 

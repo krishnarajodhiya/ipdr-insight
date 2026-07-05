@@ -147,10 +147,13 @@ def _load_investigation_payload(conn, query: str) -> dict:
 def startup():
     initialize_db()
     with transaction() as conn:
-        count = conn.execute("SELECT COUNT(*) AS c FROM records").fetchone()["c"]
-        if count == 0 and SAMPLE_DATA_PATH.exists():
-            rows, file_type = load_rows_from_upload(SAMPLE_DATA_PATH.name, SAMPLE_DATA_PATH.read_bytes())
-            import_records(conn, SAMPLE_DATA_PATH.name, rows, file_type)
+        seed_uploads = conn.execute("SELECT id FROM uploads WHERE filename = ?", (SAMPLE_DATA_PATH.name,)).fetchall()
+        for row in seed_uploads:
+            upload_id = row["id"]
+            conn.execute("DELETE FROM parse_errors WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM records WHERE upload_id = ?", (upload_id,))
+            conn.execute("DELETE FROM uploads WHERE id = ?", (upload_id,))
+        conn.execute("DELETE FROM records WHERE source_file = ?", (SAMPLE_DATA_PATH.name,))
 
 
 @app.get("/health")
@@ -193,6 +196,46 @@ async def upload(file: UploadFile = File(...), user=Depends(get_current_user)):
         date_max=upload_row["date_max"],
         errors=errors[:20],
     )
+
+
+@app.get("/uploads")
+def list_uploads(user=Depends(get_current_user)):
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT u.id, u.filename, u.file_type, u.total_rows, u.valid_rows, u.error_rows,
+                   u.date_min, u.date_max, u.created_at,
+                   COUNT(r.id) AS record_count
+            FROM uploads u
+            LEFT JOIN records r ON r.upload_id = u.id
+            GROUP BY u.id
+            ORDER BY u.created_at DESC, u.id DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/uploads/{upload_id}")
+def upload_detail(upload_id: int, user=Depends(get_current_user)):
+    with connect() as conn:
+        upload_row = conn.execute("SELECT * FROM uploads WHERE id = ?", (upload_id,)).fetchone()
+        if not upload_row:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        records = [dict(r) for r in conn.execute(
+            """
+            SELECT id, upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp,
+                   duration_sec, port, data_volume, session_type, raw_json
+            FROM records
+            WHERE upload_id = ?
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (upload_id,),
+        ).fetchall()]
+        errors = [dict(r) for r in conn.execute(
+            "SELECT id, upload_id, row_index, message, raw_json, created_at FROM parse_errors WHERE upload_id = ? ORDER BY row_index ASC",
+            (upload_id,),
+        ).fetchall()]
+    return {"upload": dict(upload_row), "records": records, "errors": errors}
 
 
 @app.get("/dashboard/summary")
@@ -381,6 +424,7 @@ def delete_blacklist_entry(entry_id: int, user=Depends(get_current_user)):
 @app.get("/records/search")
 def search_records(
     query: Optional[str] = None,
+    upload_id: Optional[int] = None,
     page: int = 1,
     page_size: int = 25,
     sort_by: str = "timestamp",
@@ -396,7 +440,11 @@ def search_records(
 ):
     with connect() as conn:
         records = [dict(r) for r in fetch_all_records(conn)]
-        flags = compute_flags(conn)
+        if upload_id is not None:
+            records = [r for r in records if int(r.get("upload_id") or 0) == int(upload_id)]
+            flags = compute_flags(conn, records)
+        else:
+            flags = compute_flags(conn)
 
     filters = {
         "query": query,
@@ -436,6 +484,7 @@ def search_records(
 @app.get("/interactions")
 def interactions(
     query: Optional[str] = None,
+    upload_id: Optional[int] = None,
     a_party: Optional[str] = None,
     b_party: Optional[str] = None,
     start_date: Optional[str] = None,
@@ -453,7 +502,11 @@ def interactions(
 ):
     with connect() as conn:
         rows = [dict(r) for r in fetch_all_records(conn)]
-        flags = compute_flags(conn)
+        if upload_id is not None:
+            rows = [r for r in rows if int(r.get("upload_id") or 0) == int(upload_id)]
+            flags = compute_flags(conn, rows)
+        else:
+            flags = compute_flags(conn)
     filters = {
         "query": query,
         "start_date": start_date,

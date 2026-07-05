@@ -1,10 +1,12 @@
 import csv
 import io
 import json
+import re
 from collections import Counter, defaultdict
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -81,41 +83,150 @@ def detect_delimiter(sample: str) -> str:
         return ","
 
 
+def _alias_set() -> set[str]:
+    values = set()
+    for aliases in ALIASES.values():
+        for alias in aliases:
+            values.add(normalize_key(alias))
+    return values
+
+
+def _looks_like_header(tokens: list[str]) -> bool:
+    aliases = _alias_set()
+    matches = 0
+    for token in tokens:
+        normalized = normalize_key(token)
+        if normalized in aliases:
+            matches += 1
+            continue
+        if any(part in normalized for part in ("party", "number", "ip", "time", "date", "duration", "session", "port", "type", "call")):
+            matches += 1
+    return matches >= max(1, len(tokens) // 3)
+
+
+def _coerce_json_rows(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, dict):
+        for key in ("records", "data", "rows", "items"):
+            if key in data and isinstance(data[key], list):
+                data = data[key]
+                break
+    if not isinstance(data, list):
+        raise ValueError("JSON upload must be an array or contain a records list")
+    rows = []
+    for item in data:
+        if isinstance(item, dict):
+            rows.append(dict(item))
+        elif isinstance(item, (list, tuple)):
+            rows.append({f"column_{index}": value for index, value in enumerate(item)})
+        else:
+            rows.append({"value": item})
+    return rows
+
+
 def load_rows_from_upload(file_name: str, content: bytes) -> tuple[list[dict[str, Any]], str]:
     suffix = Path(file_name).suffix.lower()
     if suffix == ".json":
         data = json.loads(content.decode("utf-8", errors="ignore"))
-        if isinstance(data, dict):
-            for key in ("records", "data", "rows", "items"):
-                if key in data and isinstance(data[key], list):
-                    data = data[key]
-                    break
-        if not isinstance(data, list):
-            raise ValueError("JSON upload must be an array or contain a records list")
-        return [dict(item) for item in data], "json"
+        return _coerce_json_rows(data), "json"
 
     text = content.decode("utf-8", errors="ignore")
     delimiter = detect_delimiter(text[:2048]) if suffix in {".csv", ".txt"} else ","
+    preview_line = text.splitlines()[0] if text.splitlines() else ""
+    preview_tokens = next(csv.reader([preview_line], delimiter=delimiter)) if preview_line else []
+    has_header = _looks_like_header(preview_tokens)
     frame = pd.read_csv(
         io.StringIO(text),
         sep=delimiter,
         dtype=str,
         engine="python",
         on_bad_lines="skip",
+        header=0 if has_header else None,
     ).fillna("")
+    if not has_header:
+        frame.columns = [f"column_{index}" for index in range(len(frame.columns))]
     return frame.to_dict(orient="records"), "csv"
 
 
+def _best_fuzzy_match(target: str, candidates: list[str]) -> Optional[str]:
+    best_score = 0.0
+    best_candidate = None
+    for candidate in candidates:
+        score = SequenceMatcher(None, target, candidate).ratio()
+        if score > best_score:
+            best_score = score
+            best_candidate = candidate
+    return best_candidate if best_score >= 0.72 else None
+
+
+def _parse_numeric(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        text = str(value).replace(",", "").strip()
+        if not text:
+            return None
+        return float(text)
+    except Exception:
+        return None
+
+
+def _value_is_ip(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", text))
+
+
+def _value_is_party_number(value: Any) -> bool:
+    text = re.sub(r"\D", "", str(value or ""))
+    return len(text) >= 7
+
+
+def _find_first_matching_value(raw: dict[str, Any], predicate) -> Any:
+    for value in raw.values():
+        if predicate(value):
+            return value
+    return None
+
+
+def _find_best_key(normalized: dict[str, Any], aliases: list[str]) -> Any:
+    for alias in aliases:
+        key = normalize_key(alias)
+        if key in normalized and normalized[key] not in (None, ""):
+            return normalized[key]
+    best_key = _best_fuzzy_match(normalize_key(aliases[0]), list(normalized.keys())) if aliases else None
+    if best_key and normalized.get(best_key) not in (None, ""):
+        return normalized[best_key]
+    return None
+
+
 def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(raw, (list, tuple)):
+        raw = {f"column_{index}": value for index, value in enumerate(raw)}
+
     normalized = {normalize_key(k): v for k, v in raw.items()}
     mapped = {}
     for field, aliases in ALIASES.items():
-        value = None
-        for alias in aliases:
-            if alias in normalized and normalized[alias] not in (None, ""):
-                value = normalized[alias]
-                break
-        mapped[field] = value
+        mapped[field] = _find_best_key(normalized, aliases)
+
+    if not mapped["timestamp"]:
+        mapped["timestamp"] = _find_first_matching_value(raw, lambda value: parse_datetime(value) is not None)
+    if not mapped["a_party"]:
+        mapped["a_party"] = _find_first_matching_value(raw, lambda value: _value_is_party_number(value) and not _value_is_ip(value))
+    if not mapped["b_party_ip"]:
+        mapped["b_party_ip"] = _find_first_matching_value(raw, _value_is_ip)
+    if not mapped["b_party_number"]:
+        mapped["b_party_number"] = _find_first_matching_value(raw, lambda value: _value_is_party_number(value) and str(value).strip() != str(mapped.get("a_party") or "").strip())
+    if not mapped["duration_sec"]:
+        duration_candidates = [value for key, value in normalized.items() if any(token in key for token in ("duration", "seconds", "elapsed", "call_length"))]
+        mapped["duration_sec"] = duration_candidates[0] if duration_candidates else _find_first_matching_value(raw, lambda value: _parse_numeric(value) is not None and 0 <= _parse_numeric(value) <= 86400)
+    if not mapped["port"]:
+        port_candidates = [value for key, value in normalized.items() if "port" in key]
+        mapped["port"] = port_candidates[0] if port_candidates else _find_first_matching_value(raw, lambda value: _parse_numeric(value) is not None and 0 < _parse_numeric(value) <= 65535)
+    if not mapped["data_volume"]:
+        data_candidates = [value for key, value in normalized.items() if any(token in key for token in ("volume", "bytes", "traffic"))]
+        mapped["data_volume"] = data_candidates[0] if data_candidates else None
+    if not mapped["session_type"]:
+        session_candidates = [value for key, value in normalized.items() if any(token in key for token in ("type", "protocol", "service"))]
+        mapped["session_type"] = session_candidates[0] if session_candidates else None
 
     timestamp = parse_datetime(mapped["timestamp"])
     a_party = str(mapped["a_party"]).strip() if mapped["a_party"] not in (None, "") else ""
@@ -124,14 +235,10 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
     duration_raw = mapped["duration_sec"]
     data_volume_raw = mapped["data_volume"]
 
-    if duration_raw in (None, ""):
-        duration = 0.0
-    else:
-        duration = float(str(duration_raw).replace(",", "").strip())
+    duration_numeric = _parse_numeric(duration_raw)
+    duration = duration_numeric if duration_numeric is not None else 0.0
 
-    data_volume = None
-    if data_volume_raw not in (None, ""):
-        data_volume = float(str(data_volume_raw).replace(",", "").strip())
+    data_volume = _parse_numeric(data_volume_raw)
 
     if not a_party or not timestamp:
         raise ValueError("Missing required fields")
@@ -224,12 +331,12 @@ def _bucket_timestamp(dt: datetime, minutes: int) -> datetime:
     return dt.replace(minute=bucket, second=0, microsecond=0)
 
 
-def compute_flags(conn) -> dict[str, Any]:
+def compute_flags(conn, records: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
     settings = {
         key: get_setting(conn, key, default)
         for key, default in DEFAULT_SETTINGS.items()
     }
-    records = [dict(r) for r in fetch_all_records(conn)]
+    records = records if records is not None else [dict(r) for r in fetch_all_records(conn)]
     if not records:
         return {
             "flags_by_a_party": {},
