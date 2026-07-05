@@ -1620,7 +1620,7 @@ function Shell({ token, username, onLogout }) {
                 <button
                   key={item.id}
                   onClick={() => setView(item.id)}
-                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "border-[#374F6B] bg-[#F4F4F4] text-[#374F6B] font-bold" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
+                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "bg-[#374F6B] text-white shadow-md font-bold" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
                 >
                   <Icon size={16} />
                   {item.label}
