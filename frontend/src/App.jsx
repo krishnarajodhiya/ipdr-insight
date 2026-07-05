@@ -37,7 +37,7 @@ import { jsPDF } from "jspdf";
 import { apiFetch, downloadBlob } from "./api";
 
 const STORAGE_KEY = "ipdr_insight_token";
-const ACCENT = "#1e40af";
+const ACCENT = "#374F6B"; // Police Blue
 const BOOT_MESSAGES = [
   "Authenticating session...",
   "Loading IPDR records...",
@@ -51,14 +51,14 @@ function formatValue(value) {
 }
 
 function riskTone(level) {
-  if (level === "High") return "text-red-700 bg-red-50 border-red-200";
-  if (level === "Medium") return "text-amber-700 bg-amber-50 border-amber-200";
+  if (level === "High") return "text-white bg-[#B22222] border-[#B22222]";
+  if (level === "Medium") return "text-white bg-[#A38F58] border-[#A38F58]";
   return "text-slate-700 bg-slate-100 border-slate-200";
 }
 
 function riskBorder(level) {
-  if (level === "High") return "border-l-red-500";
-  if (level === "Medium") return "border-l-amber-500";
+  if (level === "High") return "border-l-[#B22222]";
+  if (level === "Medium") return "border-l-[#A38F58]";
   return "border-l-slate-300";
 }
 
@@ -267,7 +267,7 @@ function BootScreen({ message, progress }) {
       <CyberBackdrop />
       <div className="relative z-10 flex min-h-full items-center justify-center px-4">
         <div className="w-full max-w-lg text-center">
-          <div className="boot-logo-pulse text-3xl font-bold tracking-[0.18em] text-white">IPDR INSIGHT</div>
+          <div className="boot-logo-pulse text-3xl font-bold tracking-[0.18em] text-white">MP POLICE</div>
           <p className="mt-3 text-xs uppercase tracking-[0.26em] text-blue-200/90">System initializing</p>
           <div className="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
             <div
@@ -397,7 +397,7 @@ function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) 
         <div className="font-semibold text-slate-800">Legend</div>
         <div className="mt-1 flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACCENT }} />Caller</div>
         <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full border border-slate-400 bg-white" />Receiver</div>
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Flagged Caller</div>
+        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#B22222]" />Flagged Caller</div>
         <div className="mt-1">Node size = number of calls/messages</div>
       </div>
 
@@ -435,7 +435,7 @@ function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) 
             const r = graph.radius(node);
             const focused = focusedNode && focusedNode === node.id;
             const isFlagged = node.riskLevel === "High" || node.riskLevel === "Medium";
-            const fill = isFlagged ? (node.riskLevel === "High" ? "#ef4444" : "#f59e0b") : node.type === "a" ? ACCENT : "#ffffff";
+            const fill = isFlagged ? (node.riskLevel === "High" ? "#B22222" : "#A38F58") : node.type === "a" ? ACCENT : "#ffffff";
             const stroke = node.type === "a" || isFlagged ? "#ffffff" : "#64748b";
             const ring = focused ? "#22c55e" : isFlagged ? `${fill}55` : "transparent";
             return (
@@ -598,10 +598,10 @@ function DashboardView({ token, onOpenCasePicker }) {
           </>
         ) : (
           <>
-            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#1e40af" />
-            <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#1e40af" />
-            <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#1e40af" />
-            <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#374F6B" />
+            <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#374F6B" />
+            <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#374F6B" />
+            <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#B22222" />
           </>
         )}
       </div>
@@ -737,7 +737,7 @@ function DashboardView({ token, onOpenCasePicker }) {
               <>
                 <StatCard label="Low" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
                 <StatCard label="Medium" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
-                <StatCard label="High" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+                <StatCard label="High" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#B22222" />
               </>
             )}
           </div>
@@ -1476,9 +1476,9 @@ function LogsView({ token }) {
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <StatCard label="Total rows" value={selectedUpload.upload.total_rows} icon={FileText} accent="#1e40af" />
-                <StatCard label="Records stored" value={selectedUpload.records.length} icon={Database} accent="#1e40af" />
-                <StatCard label="Parse errors" value={selectedUpload.errors.length} icon={AlertTriangle} accent="#b91c1c" />
+                <StatCard label="Total rows" value={selectedUpload.upload.total_rows} icon={FileText} accent="#374F6B" />
+                <StatCard label="Records stored" value={selectedUpload.records.length} icon={Database} accent="#374F6B" />
+                <StatCard label="Parse errors" value={selectedUpload.errors.length} icon={AlertTriangle} accent="#B22222" />
               </div>
 
               <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
@@ -1609,8 +1609,8 @@ function Shell({ token, username, onLogout }) {
       <div className="flex min-h-screen">
         <aside className="hidden w-72 flex-col border-r border-slate-200 bg-slate-100 px-4 py-6 lg:flex">
           <div className="mb-8 px-2">
-            <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>IPDR Insight</p>
-            <h2 className="mt-2 text-2xl font-bold heading-tight text-slate-900">Investigation Tool</h2>
+            <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>Madhya Pradesh</p>
+            <h2 className="mt-2 text-2xl font-bold heading-tight text-slate-900">POLICE</h2>
           </div>
           <nav className="space-y-1">
             {menu.map((item) => {
@@ -1620,7 +1620,7 @@ function Shell({ token, username, onLogout }) {
                 <button
                   key={item.id}
                   onClick={() => setView(item.id)}
-                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "border-blue-700 bg-blue-50 text-blue-800" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
+                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "border-[#374F6B] bg-[#F4F4F4] text-[#374F6B] font-bold" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
                 >
                   <Icon size={16} />
                   {item.label}
