@@ -596,74 +596,32 @@ function DashboardView({ token, onOpenCasePicker }) {
     <div className="space-y-6">
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {loading ? (
-          <>
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-          </>
-        ) : (
-          <>
-            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#374F6B" />
-            <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#374F6B" />
-            <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#374F6B" />
-            <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#B22222" />
-          </>
-        )}
-      </div>
+      <div className="grid gap-6 xl:grid-cols-[300px_1fr_400px]">
+        
+        {/* LEFT PANEL: Stats & Upload */}
+        <div className="flex flex-col gap-6">
+          <section className="card p-5 fade-in space-y-4">
+            <h2 className="text-xl font-bold heading-tight text-slate-900 mb-4">Overview</h2>
+            {loading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+                <Skeleton className="h-24" />
+              </div>
+            ) : (
+              <>
+                <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#374F6B" />
+                <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#374F6B" />
+                <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#374F6B" />
+                <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#B22222" />
+              </>
+            )}
+          </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
-        <section className="card p-5 fade-in">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Connection Map</h2>
-              <p className="text-sm muted">A visual map of who is contacting whom. Click on any suspicious red dot to see its connections.</p>
-            </div>
-            <label
-              className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Upload size={16} />
-              Upload file
-              <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
-            </label>
-          </div>
-          <UploadDropzone onFile={uploadByFile} />
-          <div className="mt-4">
-            {loading ? <Skeleton className="aspect-[16/10] w-full" /> : <NetworkGraph nodes={network.nodes} edges={network.edges} focusedNode={focusedNode} riskLookup={riskLookup} />}
-          </div>
-        </section>
-
-        <section className="card p-5 fade-in">
-          <h2 className="text-xl font-bold heading-tight text-slate-900">Upload Summary</h2>
-          {uploadResult ? (
-            <div className="mt-4 grid gap-2 text-sm text-slate-700">
-              <p><span className="font-medium">File:</span> {uploadResult.filename}</p>
-              <p><span className="font-medium">Total rows:</span> {uploadResult.total_rows}</p>
-              <p><span className="font-medium">Valid rows:</span> {uploadResult.valid_rows}</p>
-              <p><span className="font-medium">Errors:</span> {uploadResult.error_rows}</p>
-              <p><span className="font-medium">Date range:</span> {uploadResult.date_min || "-"} to {uploadResult.date_max || "-"}</p>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm muted">Upload a Phone Log file to view details.</p>
-          )}
-
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Most Suspicious Numbers</h3>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[["all", "All Suspicious"], ["auto", "Auto-detected"], ["manual", "Manually Flagged"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setTopFilter(key)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 space-y-3">
+          <section className="card p-5 fade-in">
+            <h2 className="text-lg font-bold heading-tight text-slate-900 mb-4">Risk Summary</h2>
+            <div className="space-y-3">
               {loading ? (
                 <>
                   <Skeleton className="h-20" />
@@ -671,87 +629,135 @@ function DashboardView({ token, onOpenCasePicker }) {
                   <Skeleton className="h-20" />
                 </>
               ) : (
-                filteredTopFlagged.slice(0, 6).map((row) => (
-                  <button
-                    key={row.a_party}
-                    onClick={() => setFocusedNode(row.a_party)}
-                    className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-lg text-slate-800 tracking-wide">{row.a_party}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold flex items-center gap-1 ${riskTone(row.risk_level)}`}><ShieldAlert size={14}/> {row.risk_level} Risk</span>
-                        {row.blacklist_matches?.length ? (
-                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${blacklistTone()}`}>Blacklist Match</span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-700">
-                      <strong>Activity:</strong> This number contacted <strong>{row.distinct_b_parties}</strong> different people, sending <strong>{row.interaction_count}</strong> calls/messages. (Risk Score: {row.risk_score})
-                    </p>
-                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                      <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
-                    </div>
-                  </button>
-                ))
+                <>
+                  <StatCard label="Low Risk" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
+                  <StatCard label="Medium Risk" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
+                  <StatCard label="High Risk" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#B22222" />
+                </>
               )}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-        <section className="card p-5 fade-in">
-          <div className="mb-4">
-            <h2 className="text-xl font-bold heading-tight text-slate-900">Communication Volume Over Time</h2>
-            <p className="text-sm muted">Detect traffic spikes and unusual windows quickly.</p>
-          </div>
-          <div className="h-80">
-            {loading ? (
-              <Skeleton className="h-full w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeline}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a" }} />
-                  <Area type="monotone" dataKey="count" stroke={ACCENT} fill={ACCENT} fillOpacity={0.16} />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </section>
-
-        <section className="card p-5 fade-in">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Risk Summary</h2>
-              <p className="text-sm muted">Low / Medium / High flagged parties.</p>
             </div>
             <button
               onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv"))}
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
+              className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
             >
               Export CSV
             </button>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            {loading ? (
-              <>
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-              </>
-            ) : (
-              <>
-                <StatCard label="Low" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
-                <StatCard label="Medium" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
-                <StatCard label="High" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#B22222" />
-              </>
-            )}
-          </div>
-        </section>
+          </section>
+
+          <section className="card p-5 fade-in">
+            <h2 className="text-lg font-bold heading-tight text-slate-900 mb-4">Data Source</h2>
+            <label
+              className="mb-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm w-full"
+              style={{ backgroundColor: ACCENT }}
+            >
+              <Upload size={16} />
+              Upload file
+              <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
+            </label>
+            <UploadDropzone onFile={uploadByFile} />
+          </section>
+        </div>
+
+        {/* CENTER PANEL: Map & Timeline */}
+        <div className="flex flex-col gap-6">
+          <section className="card p-5 fade-in flex-grow flex flex-col">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Connection Map</h2>
+              <p className="text-sm muted">A visual map of who is contacting whom. Click on any suspicious red dot to see its connections.</p>
+            </div>
+            <div className="flex-grow min-h-[500px]">
+              {loading ? <Skeleton className="h-full w-full" /> : <NetworkGraph nodes={network.nodes} edges={network.edges} focusedNode={focusedNode} riskLookup={riskLookup} />}
+            </div>
+          </section>
+
+          <section className="card p-5 fade-in">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Communication Volume Over Time</h2>
+              <p className="text-sm muted">Detect traffic spikes and unusual windows quickly.</p>
+            </div>
+            <div className="h-64">
+              {loading ? (
+                <Skeleton className="h-full w-full" />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeline}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 12 }} />
+                    <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a" }} />
+                    <Area type="monotone" dataKey="count" stroke={ACCENT} fill={ACCENT} fillOpacity={0.16} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* RIGHT PANEL: Suspicious Numbers & Upload Summary */}
+        <div className="flex flex-col gap-6">
+          <section className="card p-5 fade-in h-full flex flex-col">
+            <h2 className="text-xl font-bold heading-tight text-slate-900 mb-4">Intelligence Feed</h2>
+            
+            {uploadResult ? (
+              <div className="mb-6 rounded-xl bg-slate-50 p-4 border border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Last Upload Status</h3>
+                <div className="grid gap-1 text-xs text-slate-600">
+                  <p><span className="font-medium text-slate-800">File:</span> {uploadResult.filename}</p>
+                  <p><span className="font-medium text-slate-800">Valid rows:</span> {uploadResult.valid_rows} / {uploadResult.total_rows}</p>
+                  <p><span className="font-medium text-slate-800">Errors:</span> <span className={uploadResult.error_rows > 0 ? "text-red-600 font-medium" : ""}>{uploadResult.error_rows}</span></p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex-grow flex flex-col">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 mb-3">Most Suspicious Numbers</h3>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[["all", "All Suspicious"], ["auto", "Auto-detected"], ["manual", "Manually Flagged"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setTopFilter(key)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-3 overflow-y-auto pr-1" style={{ maxHeight: '800px' }}>
+                {loading ? (
+                  <>
+                    <Skeleton className="h-32" />
+                    <Skeleton className="h-32" />
+                    <Skeleton className="h-32" />
+                  </>
+                ) : (
+                  filteredTopFlagged.slice(0, 10).map((row) => (
+                    <button
+                      key={row.a_party}
+                      onClick={() => setFocusedNode(row.a_party)}
+                      className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-lg text-slate-800 tracking-wide">{row.a_party}</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold flex items-center gap-1 ${riskTone(row.risk_level)}`}><ShieldAlert size={14}/> {row.risk_level} Risk</span>
+                          {row.blacklist_matches?.length ? (
+                            <span className={`rounded-lg border px-2 py-0.5 text-[10px] font-bold ${blacklistTone()}`}>Blacklist Match</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-700">
+                        <strong>Activity:</strong> Contacted <strong>{row.distinct_b_parties}</strong> different people, sending <strong>{row.interaction_count}</strong> calls/messages. (Risk Score: {row.risk_score})
+                      </p>
+                      <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                        <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
