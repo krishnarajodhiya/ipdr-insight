@@ -267,7 +267,10 @@ function BootScreen({ message, progress }) {
       <CyberBackdrop />
       <div className="relative z-10 flex min-h-full items-center justify-center px-4">
         <div className="w-full max-w-lg text-center">
-          <div className="boot-logo-pulse text-3xl font-bold tracking-[0.18em] text-white">MP POLICE</div>
+          <div className="flex flex-col items-center justify-center">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/2/22/Madhya_pradesh_police.jpg" alt="MP Police Logo" className="mb-6 h-24 w-24 rounded-full object-cover shadow-2xl boot-logo-pulse" />
+            <div className="text-3xl font-bold tracking-[0.18em] text-white">MP POLICE</div>
+          </div>
           <p className="mt-3 text-xs uppercase tracking-[0.26em] text-blue-200/90">System initializing</p>
           <div className="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
             <div
@@ -1608,9 +1611,12 @@ function Shell({ token, username, onLogout }) {
     <div className="min-h-full bg-slate-50 text-slate-900">
       <div className="flex min-h-screen">
         <aside className="hidden w-72 flex-col border-r border-slate-200 bg-slate-100 px-4 py-6 lg:flex">
-          <div className="mb-8 px-2">
-            <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>Madhya Pradesh</p>
-            <h2 className="mt-2 text-2xl font-bold heading-tight text-slate-900">POLICE</h2>
+          <div className="mb-8 px-2 flex items-center gap-3">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/2/22/Madhya_pradesh_police.jpg" alt="MP Police Logo" className="h-12 w-12 rounded-full object-cover border-2 border-slate-200" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>Madhya Pradesh</p>
+              <h2 className="text-2xl font-bold heading-tight text-slate-900 leading-none mt-0.5">POLICE</h2>
+            </div>
           </div>
           <nav className="space-y-1">
             {menu.map((item) => {
