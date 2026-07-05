@@ -395,10 +395,10 @@ function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) 
 
       <div className="absolute left-3 top-3 z-20 rounded-lg border border-slate-200 bg-white/95 p-2 text-xs text-slate-600 shadow-sm">
         <div className="font-semibold text-slate-800">Legend</div>
-        <div className="mt-1 flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACCENT }} />A-party node</div>
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full border border-slate-400 bg-white" />B-party node</div>
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Flagged node</div>
-        <div className="mt-1">Node size = interaction volume</div>
+        <div className="mt-1 flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACCENT }} />Caller</div>
+        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full border border-slate-400 bg-white" />Receiver</div>
+        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Flagged Caller</div>
+        <div className="mt-1">Node size = number of calls/messages</div>
       </div>
 
       <svg
@@ -599,9 +599,9 @@ function DashboardView({ token, onOpenCasePicker }) {
         ) : (
           <>
             <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#1e40af" />
-            <StatCard label="Unique A-parties" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#1e40af" />
-            <StatCard label="Unique B-parties" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#1e40af" />
-            <StatCard label="Flagged parties" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+            <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#1e40af" />
+            <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#1e40af" />
+            <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#b91c1c" />
           </>
         )}
       </div>
@@ -681,7 +681,7 @@ function DashboardView({ token, onOpenCasePicker }) {
                         </span>
                       </div>
                     </div>
-                    <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties</p>
+                    <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} calls/messages · {row.distinct_b_parties} receivers</p>
                   </button>
                 ))
               )}
@@ -883,7 +883,7 @@ function SearchView({ token, onOpenCasePicker }) {
             <table className="min-w-full text-left text-sm">
               <thead className="text-slate-600">
                 <tr>
-                  {[["a_party", "A-party"], ["b_party_ip", "B IP"], ["interaction_count", "Count"], ["total_duration_sec", "Duration"], ["first_seen", "First seen"], ["last_seen", "Last seen"]].map(([key, label]) => (
+                  {[["a_party", "Caller"], ["b_party_ip", "Receiver IP"], ["interaction_count", "Calls/Messages"], ["total_duration_sec", "Duration"], ["first_seen", "First seen"], ["last_seen", "Last seen"]].map(([key, label]) => (
                     <th key={key} className="cursor-pointer border-b border-slate-200 px-3 py-2" onClick={() => toggleSort(key)}>{label}</th>
                   ))}
                   <th className="border-b border-slate-200 px-3 py-2">Risk</th>
@@ -958,7 +958,7 @@ function SearchView({ token, onOpenCasePicker }) {
               <table className="min-w-full text-sm">
                 <thead className="text-slate-600">
                   <tr>
-                    <th className="border-b border-slate-200 px-3 py-2">B-party</th>
+                    <th className="border-b border-slate-200 px-3 py-2">Receiver</th>
                     <th className="border-b border-slate-200 px-3 py-2">Count</th>
                     <th className="border-b border-slate-200 px-3 py-2">Duration</th>
                     <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
@@ -1035,7 +1035,7 @@ function ReportSheet({ data, kind }) {
           <thead>
             <tr className="text-slate-500">
               <th className="border-b border-slate-200 px-2 py-2">A-party</th>
-              <th className="border-b border-slate-200 px-2 py-2">B-party</th>
+              <th className="border-b border-slate-200 px-2 py-2">Receiver</th>
               <th className="border-b border-slate-200 px-2 py-2">Timestamp</th>
               <th className="border-b border-slate-200 px-2 py-2">Duration</th>
             </tr>
@@ -1489,7 +1489,7 @@ function LogsView({ token }) {
                       <thead className="sticky top-0 bg-slate-50 text-slate-600">
                         <tr>
                           <th className="border-b border-slate-200 px-3 py-2">A-party</th>
-                          <th className="border-b border-slate-200 px-3 py-2">B-party</th>
+                          <th className="border-b border-slate-200 px-3 py-2">Receiver</th>
                           <th className="border-b border-slate-200 px-3 py-2">Timestamp</th>
                           <th className="border-b border-slate-200 px-3 py-2">Duration</th>
                         </tr>
@@ -1601,7 +1601,7 @@ function Shell({ token, username, onLogout }) {
     { id: "cases", label: "Cases", icon: Folder },
     { id: "search", label: "Search", icon: Search },
     { id: "blacklist", label: "Blacklist", icon: ShieldAlert },
-    { id: "settings", label: "Settings", icon: Settings },
+    { id: "settings", label: "Alert Rules", icon: Settings },
   ];
 
   return (
