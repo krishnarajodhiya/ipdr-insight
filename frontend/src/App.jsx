@@ -92,9 +92,9 @@ function WhyFlaggedPopover({ details = [], risk }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative inline-block">
-      <button onClick={() => setOpen((current) => !current)} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900">
+      <button onClick={() => setOpen((current) => !current)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100">
         <Info size={13} />
-        Why flagged?
+        View reasons
       </button>
       {open ? (
         <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
@@ -613,8 +613,8 @@ function DashboardView({ token, onOpenCasePicker }) {
         <section className="card p-5 fade-in">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Caller ↔ Receiver Network</h2>
-              <p className="text-sm muted">See who is talking to who. Bigger circles mean more calls. Click flagged entries to focus.</p>
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Connection Map</h2>
+              <p className="text-sm muted">A visual map of who is contacting whom. Click on any suspicious red dot to see its connections.</p>
             </div>
             <label
               className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm"
@@ -646,9 +646,9 @@ function DashboardView({ token, onOpenCasePicker }) {
           )}
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged callers</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Most Suspicious Numbers</h3>
             <div className="mt-3 flex flex-wrap gap-2">
-              {[["all", "All"], ["auto", "Auto"], ["manual", "Manual"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
+              {[["all", "All Suspicious"], ["auto", "Auto-detected"], ["manual", "Manually Flagged"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setTopFilter(key)}
@@ -673,18 +673,20 @@ function DashboardView({ token, onOpenCasePicker }) {
                     className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-800">{row.a_party}</span>
+                      <span className="font-bold text-lg text-slate-800 tracking-wide">{row.a_party}</span>
                       <div className="flex items-center gap-2">
-                        <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${riskTone(row.risk_level)}`}>{row.risk_level}</span>
+                        <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold flex items-center gap-1 ${riskTone(row.risk_level)}`}><ShieldAlert size={14}/> {row.risk_level} Risk</span>
                         {row.blacklist_matches?.length ? (
-                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${blacklistTone()}`}>Blacklist Match</span>
+                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${blacklistTone()}`}>Blacklist Match</span>
                         ) : null}
-                        <span onClick={(e) => e.stopPropagation()}>
-                          <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
-                        </span>
                       </div>
                     </div>
-                    <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} calls/messages · {row.distinct_b_parties} receivers</p>
+                    <p className="mt-2 text-sm text-slate-700">
+                      <strong>Activity:</strong> This number contacted <strong>{row.distinct_b_parties}</strong> different people, sending <strong>{row.interaction_count}</strong> calls/messages. (Risk Score: {row.risk_score})
+                    </p>
+                    <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                      <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
+                    </div>
                   </button>
                 ))
               )}
