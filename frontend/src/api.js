@@ -20,6 +20,7 @@ export async function apiFetch(path, options = {}, token) {
     if (path.startsWith("/dashboard/summary")) return demo.summary();
     if (path.startsWith("/dashboard/network")) return demo.network(Number(queryParams(path).limit || 200));
     if (path.startsWith("/dashboard/timeline")) return demo.timeline(queryParams(path).granularity || "day");
+    if (path.startsWith("/dashboard/heatmap")) return demo.heatmapGrid();
     if (path.startsWith("/flags/top")) return demo.topFlagged();
     if (path.startsWith("/records/search")) return demo.search(queryParams(path));
     if (path.startsWith("/interactions")) return demo.interactions(queryParams(path));
@@ -34,6 +35,9 @@ export async function apiFetch(path, options = {}, token) {
     if (path.startsWith("/export/csv")) return demo.exportCsv(queryParams(path));
     if (path.startsWith("/export/pdf")) return demo.exportPdf(queryParams(path).query || "");
     if (path.startsWith("/upload")) return demo.upload(options.body);
+    if (path === "/ml/anomaly") return demo.mlAnomaly();
+    if (path === "/ml/clusters") return demo.mlClusters();
+    if (path.startsWith("/ml/predict/")) return demo.mlPredict(decodeURIComponent(path.split("/ml/predict/")[1] || ""));
   }
 
   const headers = new Headers(options.headers || {});

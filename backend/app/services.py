@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import math
 import re
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from .config import DEFAULT_SETTINGS
@@ -638,3 +640,368 @@ def parse_investigation_rows(conn, query: str):
         (q, q, q),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# ML ENGINE — Anomaly Detection, Clustering, Behavioral Analysis
+# ---------------------------------------------------------------------------
+
+_FEATURE_NAMES = [
+    "night_call_ratio",
+    "short_session_ratio",
+    "fan_out_rate",
+    "avg_duration_sec",
+    "call_velocity_per_hour",
+    "distinct_b_ratio",
+    "blacklist_contact_ratio",
+]
+
+
+def _extract_features(
+    a_party: str,
+    items: list[dict[str, Any]],
+    settings: dict[str, Any],
+    blacklist_values: set[str],
+) -> dict[str, float]:
+    """Extract a behavioral feature vector for one A-party."""
+    if not items:
+        return {name: 0.0 for name in _FEATURE_NAMES}
+
+    total = len(items)
+    night_start = int(settings.get("night_start_hour", 0))
+    night_end = int(settings.get("night_end_hour", 4))
+    short_thresh = float(settings.get("short_duration_threshold_sec", 5))
+
+    def _is_night(hour: int) -> bool:
+        if night_start == night_end:
+            return True
+        if night_start < night_end:
+            return night_start <= hour < night_end
+        return hour >= night_start or hour < night_end
+
+    # Night call ratio
+    night_calls = sum(
+        1
+        for r in items
+        if r.get("dt") and _is_night(r["dt"].hour)
+    )
+    night_call_ratio = night_calls / total
+
+    # Short session ratio
+    short_sessions = sum(1 for r in items if float(r.get("duration_sec") or 0) < short_thresh)
+    short_session_ratio = short_sessions / total
+
+    # Fan-out (distinct B-parties)
+    b_ids = [r.get("b_id") or (r.get("b_party_ip") or r.get("b_party_number") or "") for r in items]
+    distinct_b = len(set(b for b in b_ids if b))
+    fan_out_rate = distinct_b / max(1, total)
+    distinct_b_ratio = distinct_b / max(1, total)
+
+    # Average duration
+    durations = [float(r.get("duration_sec") or 0) for r in items]
+    avg_duration_sec = sum(durations) / total if durations else 0.0
+
+    # Call velocity (calls per hour over the observed window)
+    timestamps = sorted(
+        [r.get("dt") for r in items if r.get("dt")],
+        key=lambda d: d
+    )
+    if len(timestamps) >= 2:
+        span_hours = max(
+            (timestamps[-1] - timestamps[0]).total_seconds() / 3600, 1
+        )
+        call_velocity_per_hour = total / span_hours
+    else:
+        call_velocity_per_hour = float(total)
+
+    # Blacklist contact ratio
+    bl_hits = sum(1 for bid in b_ids if bid in blacklist_values)
+    blacklist_contact_ratio = bl_hits / max(1, total)
+
+    return {
+        "night_call_ratio": round(night_call_ratio, 4),
+        "short_session_ratio": round(short_session_ratio, 4),
+        "fan_out_rate": round(fan_out_rate, 4),
+        "avg_duration_sec": round(avg_duration_sec, 2),
+        "call_velocity_per_hour": round(call_velocity_per_hour, 4),
+        "distinct_b_ratio": round(distinct_b_ratio, 4),
+        "blacklist_contact_ratio": round(blacklist_contact_ratio, 4),
+    }
+
+
+def _normalize_features(feature_matrix: list[list[float]]) -> list[list[float]]:
+    """Min-max normalize each feature column independently."""
+    if not feature_matrix or not feature_matrix[0]:
+        return feature_matrix
+    arr = np.array(feature_matrix, dtype=float)
+    col_min = arr.min(axis=0)
+    col_max = arr.max(axis=0)
+    ranges = col_max - col_min
+    ranges[ranges == 0] = 1.0  # avoid division by zero
+    return ((arr - col_min) / ranges).tolist()
+
+
+def compute_ml_features(
+    conn,
+    records: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """
+    Compute behavioral feature vectors for all A-parties.
+    Returns a dict keyed by a_party with feature vector + metadata.
+    """
+    from .config import DEFAULT_SETTINGS
+
+    settings = {
+        key: get_setting(conn, key, default)
+        for key, default in DEFAULT_SETTINGS.items()
+    }
+    records = records if records is not None else [dict(r) for r in fetch_all_records(conn)]
+
+    if not records:
+        return {"parties": [], "feature_names": _FEATURE_NAMES}
+
+    blacklist_entries = get_blacklist_entries(conn)
+    blacklist_values = {e["value"] for e in blacklist_entries}
+
+    # Attach parsed datetimes
+    for r in records:
+        if "dt" not in r or r["dt"] is None:
+            try:
+                r["dt"] = datetime.fromisoformat(r["timestamp"])
+            except Exception:
+                r["dt"] = None
+        if "b_id" not in r:
+            r["b_id"] = r.get("b_party_ip") or r.get("b_party_number") or ""
+
+    by_a: dict[str, list] = defaultdict(list)
+    for r in records:
+        by_a[r["a_party"]].append(r)
+
+    parties = list(by_a.keys())
+    raw_features = [
+        _extract_features(a, by_a[a], settings, blacklist_values)
+        for a in parties
+    ]
+
+    feature_matrix = [[f[name] for name in _FEATURE_NAMES] for f in raw_features]
+
+    return {
+        "parties": parties,
+        "features": raw_features,
+        "feature_matrix": feature_matrix,
+        "feature_names": _FEATURE_NAMES,
+        "interaction_counts": {a: len(by_a[a]) for a in parties},
+    }
+
+
+def ml_anomaly_scores(
+    conn,
+    records: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """
+    Run Isolation Forest on behavioral feature vectors.
+    Returns a list of dicts per A-party with anomaly_score (0-100),
+    is_anomaly flag, confidence, and feature breakdown.
+    """
+    try:
+        from sklearn.ensemble import IsolationForest
+        from sklearn.preprocessing import RobustScaler
+    except ImportError:
+        return []
+
+    ml_data = compute_ml_features(conn, records)
+    parties = ml_data["parties"]
+    if len(parties) < 3:
+        # Not enough data for meaningful anomaly detection
+        return [
+            {
+                "a_party": a,
+                "anomaly_score": 0,
+                "is_anomaly": False,
+                "confidence": 0.5,
+                "features": ml_data["features"][i] if i < len(ml_data["features"]) else {},
+                "ml_available": False,
+                "reason": "Insufficient data for ML (need ≥ 3 A-parties)",
+            }
+            for i, a in enumerate(parties)
+        ]
+
+    feature_matrix = np.array(ml_data["feature_matrix"], dtype=float)
+
+    # Robust scaling handles outliers better for telecom data
+    scaler = RobustScaler()
+    scaled = scaler.fit_transform(feature_matrix)
+
+    # Isolation Forest: contamination auto-estimates anomaly fraction
+    contamination = min(0.25, max(0.05, 3 / len(parties)))
+    model = IsolationForest(
+        n_estimators=200,
+        contamination=contamination,
+        random_state=42,
+        max_samples="auto",
+    )
+    model.fit(scaled)
+
+    # Raw scores: negative → more anomalous; decision_function is cleaner
+    raw_scores = model.decision_function(scaled)  # higher = more normal
+    predictions = model.predict(scaled)  # -1 = anomaly, 1 = normal
+
+    # Invert and normalize to 0-100 anomaly score
+    # raw_scores range roughly [-0.5, 0.5]
+    min_s, max_s = raw_scores.min(), raw_scores.max()
+    range_s = max_s - min_s if max_s != min_s else 1.0
+    anomaly_scores_norm = ((max_s - raw_scores) / range_s * 100).tolist()
+
+    results = []
+    for i, a_party in enumerate(parties):
+        score = round(anomaly_scores_norm[i], 1)
+        is_anomaly = predictions[i] == -1
+        # Confidence: distance from the boundary (0.5 = boundary)
+        confidence = round(min(1.0, abs(raw_scores[i]) * 3 + 0.5), 3)
+
+        # Per-feature contribution: deviation from median
+        feature_vals = np.array(ml_data["feature_matrix"][i])
+        medians = np.median(feature_matrix, axis=0)
+        stds = np.std(feature_matrix, axis=0) + 1e-9
+        z_scores = ((feature_vals - medians) / stds).tolist()
+
+        top_contributors = sorted(
+            [
+                {"feature": _FEATURE_NAMES[j], "z_score": round(z_scores[j], 3), "value": round(feature_vals[j], 4)}
+                for j in range(len(_FEATURE_NAMES))
+            ],
+            key=lambda x: abs(x["z_score"]),
+            reverse=True,
+        )
+
+        results.append({
+            "a_party": a_party,
+            "anomaly_score": score,
+            "is_anomaly": is_anomaly,
+            "confidence": confidence,
+            "features": ml_data["features"][i],
+            "top_contributors": top_contributors[:3],
+            "interaction_count": ml_data["interaction_counts"].get(a_party, 0),
+            "ml_available": True,
+        })
+
+    # Sort by anomaly score descending
+    results.sort(key=lambda x: x["anomaly_score"], reverse=True)
+    return results
+
+
+def ml_cluster_parties(
+    conn,
+    records: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    """
+    Run DBSCAN clustering on behavioral feature vectors.
+    Returns cluster assignments for each A-party.
+    Cluster -1 = noise (isolated/extreme behavior).
+    """
+    try:
+        from sklearn.cluster import DBSCAN
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return []
+
+    ml_data = compute_ml_features(conn, records)
+    parties = ml_data["parties"]
+    if len(parties) < 4:
+        return [
+            {"a_party": a, "cluster": 0, "cluster_label": "Ungrouped", "features": ml_data["features"][i] if i < len(ml_data["features"]) else {}}
+            for i, a in enumerate(parties)
+        ]
+
+    feature_matrix = np.array(ml_data["feature_matrix"], dtype=float)
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(feature_matrix)
+
+    # DBSCAN auto-clustering
+    eps = 0.8
+    db = DBSCAN(eps=eps, min_samples=2, metric="euclidean").fit(scaled)
+    labels = db.labels_
+
+    cluster_colors = [
+        "Syndicate Alpha", "Network Beta", "Cell Gamma", "Group Delta",
+        "Ring Epsilon", "Chain Zeta", "Unit Eta", "Team Theta",
+    ]
+
+    results = []
+    for i, a_party in enumerate(parties):
+        cluster_id = int(labels[i])
+        if cluster_id == -1:
+            cluster_label = "Isolated / Extreme"
+        else:
+            cluster_label = cluster_colors[cluster_id % len(cluster_colors)]
+
+        results.append({
+            "a_party": a_party,
+            "cluster": cluster_id,
+            "cluster_label": cluster_label,
+            "features": ml_data["features"][i],
+            "interaction_count": ml_data["interaction_counts"].get(a_party, 0),
+        })
+
+    return results
+
+
+def ml_predict_party(
+    conn,
+    a_party: str,
+    records: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """
+    Full ML prediction for a single A-party with explainability.
+    Returns anomaly score, cluster, behavioral profile, and natural-language insight.
+    """
+    all_scores = ml_anomaly_scores(conn, records)
+    all_clusters = ml_cluster_parties(conn, records)
+
+    score_data = next((s for s in all_scores if s["a_party"] == a_party), None)
+    cluster_data = next((c for c in all_clusters if c["a_party"] == a_party), None)
+
+    if not score_data:
+        return {
+            "a_party": a_party,
+            "anomaly_score": 0,
+            "is_anomaly": False,
+            "confidence": 0.5,
+            "cluster": -1,
+            "cluster_label": "Unknown",
+            "features": {},
+            "insight": "Insufficient data for ML prediction.",
+            "ml_available": False,
+        }
+
+    # Generate natural-language insight
+    insights = []
+    features = score_data.get("features", {})
+    if features.get("night_call_ratio", 0) > 0.5:
+        insights.append(f"Over {int(features['night_call_ratio']*100)}% of activity occurs at night — high operational secrecy indicator.")
+    if features.get("short_session_ratio", 0) > 0.6:
+        insights.append(f"High proportion ({int(features['short_session_ratio']*100)}%) of short sessions — consistent with signal-testing or dead-drop coordination.")
+    if features.get("fan_out_rate", 0) > 0.5:
+        insights.append(f"High fan-out rate ({round(features['fan_out_rate'], 2)}) — contacts many unique destinations, indicating potential coordination hub.")
+    if features.get("blacklist_contact_ratio", 0) > 0:
+        insights.append(f"Has contact with known-bad infrastructure ({round(features['blacklist_contact_ratio']*100, 1)}% of sessions).")
+    if features.get("call_velocity_per_hour", 0) > 10:
+        insights.append(f"Unusually high call velocity ({round(features['call_velocity_per_hour'], 1)} calls/hr) — possible automated or scripted activity.")
+
+    if not insights:
+        insights.append("Behavioral pattern within normal operational bounds.")
+
+    return {
+        "a_party": a_party,
+        "anomaly_score": score_data["anomaly_score"],
+        "is_anomaly": score_data["is_anomaly"],
+        "confidence": score_data["confidence"],
+        "cluster": cluster_data["cluster"] if cluster_data else -1,
+        "cluster_label": cluster_data["cluster_label"] if cluster_data else "Unknown",
+        "features": features,
+        "top_contributors": score_data.get("top_contributors", []),
+        "insight": " ".join(insights),
+        "ml_available": score_data.get("ml_available", False),
+        "interaction_count": score_data.get("interaction_count", 0),
+    }
+

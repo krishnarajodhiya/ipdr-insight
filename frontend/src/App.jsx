@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   forceCenter,
   forceCollide,
@@ -9,9 +9,20 @@ import {
   forceX,
   forceY,
 } from "d3-force";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  Activity,
   AlertTriangle,
+  Brain,
   Clock3,
   Database,
   FileText,
@@ -19,129 +30,84 @@ import {
   FolderPlus,
   LayoutDashboard,
   LogOut,
-  Plus,
   Network,
-  ShieldAlert,
-  Info,
+  Plus,
+  RefreshCw,
   Search,
   Settings,
-  Upload,
+  ShieldAlert,
+  Sparkles,
+  Target,
   Trash2,
+  Upload,
   Users,
   ZoomIn,
   ZoomOut,
-  RefreshCw,
+  Info,
+  X,
+  ChevronRight,
+  Eye,
 } from "lucide-react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { apiFetch, downloadBlob } from "./api";
 
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
 const STORAGE_KEY = "ipdr_insight_token";
 const ACCENT = "#1e40af";
+const DANGER = "#b91c1c";
+const ML_COLOR = "#6d28d9";
 const BOOT_MESSAGES = [
-  "Authenticating session...",
-  "Loading IPDR records...",
-  "Initializing network graph...",
-  "Establishing secure connection...",
+  "Authenticating credentials…",
+  "Loading IPDR intelligence database…",
+  "Initializing ML anomaly engine…",
+  "Building communication network graph…",
+  "Preparing CIB investigation tools…",
 ];
 
-function formatValue(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  return value;
+/* ============================================================
+   UTILITY FUNCTIONS
+   ============================================================ */
+function formatVal(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  return v;
 }
 
-function riskTone(level) {
-  if (level === "High") return "text-red-700 bg-red-50 border-red-200";
-  if (level === "Medium") return "text-amber-700 bg-amber-50 border-amber-200";
-  return "text-slate-700 bg-slate-100 border-slate-200";
+function riskBadge(level) {
+  if (level === "High") return "badge badge-high";
+  if (level === "Medium") return "badge badge-medium";
+  return "badge badge-low";
 }
 
-function riskBorder(level) {
-  if (level === "High") return "border-l-red-500";
-  if (level === "Medium") return "border-l-amber-500";
-  return "border-l-slate-300";
+function riskBorderColor(level) {
+  if (level === "High") return "#ef4444";
+  if (level === "Medium") return "#f59e0b";
+  return "#475569";
 }
 
-function blacklistTone() {
-  return "text-red-950 bg-red-100 border-red-300";
-}
-
-function blacklistBorder() {
-  return "border-l-red-700";
-}
-
-function subjectType(subject) {
-  const text = String(subject || "");
-  if (text.includes(":") || text.split(".").length === 4) return "ip";
-  if (/^\d+$/.test(text)) return "number";
+function subjectType(s) {
+  const t = String(s || "");
+  if (t.includes(":") || t.split(".").length === 4) return "ip";
+  if (/^\d+$/.test(t)) return "number";
   return "unknown";
 }
 
-function subjectLabel(subject) {
-  const type = subjectType(subject);
-  return `${subject} ${type === "ip" ? "(IP)" : type === "number" ? "(Number)" : ""}`.trim();
+function subjectLabel(s) {
+  const t = subjectType(s);
+  return `${s} ${t === "ip" ? "(IP)" : t === "number" ? "(No.)" : ""}`.trim();
 }
 
-function flagSource(row) {
-  if (row?.blacklist_matches?.length) return "blacklist";
-  if (row?.flags?.some((flag) => flag.source === "manual")) return "manual";
-  return "auto";
+function mlScoreColor(score) {
+  if (score >= 70) return "#ef4444";
+  if (score >= 40) return "#f59e0b";
+  return "#10b981";
 }
 
-function WhyFlaggedPopover({ details = [], risk }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative inline-block">
-      <button onClick={() => setOpen((current) => !current)} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900">
-        <Info size={13} />
-        Why flagged?
-      </button>
-      {open ? (
-        <div className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-slate-900">Risk breakdown</p>
-            <button className="text-xs muted" onClick={() => setOpen(false)}>Close</button>
-          </div>
-          <ul className="mt-3 space-y-2 text-sm text-slate-700">
-            {details.length ? details.map((detail, index) => (
-              <li key={`${detail.type}-${index}`} className="flex items-start gap-2">
-                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
-                <span>
-                  {detail.message} <span className="font-semibold text-slate-900">→ +{detail.points}</span>
-                </span>
-              </li>
-            )) : <li className="muted">No triggered rules.</li>}
-          </ul>
-          <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm">
-            <span className="font-semibold text-slate-900">Total Risk Score:</span> {risk?.score ?? 0} → <span className="font-semibold">{risk?.level ?? "Low"}</span>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-async function exportReportPdf(element, fileName) {
-  if (!element) return;
-  const canvas = await html2canvas(element, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-  const imageData = canvas.toDataURL("image/png");
-  const pdf = new jsPDF("p", "mm", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const imageHeight = (canvas.height * pageWidth) / canvas.width;
-  let remaining = imageHeight;
-  let position = 0;
-  while (remaining > 0) {
-    pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
-    remaining -= pageHeight;
-    if (remaining > 0) {
-      pdf.addPage();
-      position -= pageHeight;
-    }
-  }
-  pdf.save(fileName);
-}
-
+/* ============================================================
+   HOOKS
+   ============================================================ */
 function useAuth() {
   const [token, setToken] = useState(localStorage.getItem(STORAGE_KEY) || "");
   const [username, setUsername] = useState("admin");
@@ -161,136 +127,110 @@ function useAuth() {
   return { token, username, login, logout };
 }
 
-function Skeleton({ className }) {
-  return <div className={`skeleton rounded-xl ${className}`} />;
+function useCountUp(target, duration = 900) {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (!target) { setVal(0); return; }
+    const start = Date.now();
+    const from = 0;
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      const pct = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - pct, 3);
+      setVal(Math.round(from + (target - from) * eased));
+      if (pct < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [target, duration]);
+  return val;
 }
 
+/* ============================================================
+   ERROR BOUNDARY
+   ============================================================ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex min-h-screen items-center justify-center p-8" style={{ background: "var(--bg-base)" }}>
+          <div className="card p-8 max-w-lg text-center">
+            <AlertTriangle size={40} className="mx-auto text-danger mb-4" />
+            <h2 className="heading-tight text-xl mb-2">Component Error</h2>
+            <p className="muted text-sm mb-4">{this.state.error.message}</p>
+            <button className="btn-primary" onClick={() => this.setState({ error: null })}>Dismiss</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ============================================================
+   ANIMATED BACKDROP
+   ============================================================ */
 function CyberBackdrop() {
   return (
     <>
       <div className="auth-bg-gradient" />
       <div className="auth-bg-grid" />
-      <svg className="auth-bg-network" viewBox="0 0 1200 800" preserveAspectRatio="none" aria-hidden>
+      <svg className="auth-bg-network" viewBox="0 0 1400 900" preserveAspectRatio="none" aria-hidden>
         <g>
-          <line x1="120" y1="140" x2="380" y2="240" />
-          <line x1="380" y1="240" x2="620" y2="180" />
-          <line x1="620" y1="180" x2="860" y2="280" />
-          <line x1="860" y1="280" x2="1040" y2="220" />
-          <line x1="260" y1="430" x2="520" y2="360" />
-          <line x1="520" y1="360" x2="740" y2="470" />
-          <line x1="740" y1="470" x2="980" y2="390" />
-          <line x1="210" y1="640" x2="470" y2="560" />
-          <line x1="470" y1="560" x2="690" y2="640" />
-          <line x1="690" y1="640" x2="930" y2="580" />
-          <circle cx="120" cy="140" r="3" />
-          <circle cx="380" cy="240" r="3.5" />
-          <circle cx="620" cy="180" r="3" />
-          <circle cx="860" cy="280" r="3.5" />
-          <circle cx="1040" cy="220" r="3" />
-          <circle cx="260" cy="430" r="3.2" />
-          <circle cx="520" cy="360" r="3.5" />
-          <circle cx="740" cy="470" r="3.2" />
-          <circle cx="980" cy="390" r="3" />
-          <circle cx="210" cy="640" r="3" />
-          <circle cx="470" cy="560" r="3.5" />
-          <circle cx="690" cy="640" r="3.2" />
-          <circle cx="930" cy="580" r="3" />
+          {[
+            [120, 140, 420, 260], [420, 260, 680, 180], [680, 180, 940, 300], [940, 300, 1180, 220], [1180, 220, 1340, 320],
+            [200, 460, 500, 380], [500, 380, 760, 490], [760, 490, 1020, 400], [1020, 400, 1280, 500],
+            [160, 680, 460, 600], [460, 600, 720, 680], [720, 680, 980, 610], [980, 610, 1240, 700],
+            [420, 260, 500, 380], [680, 180, 760, 490], [940, 300, 1020, 400],
+          ].map(([x1, y1, x2, y2], i) => (
+            <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} />
+          ))}
+          {[
+            [120,140],[420,260],[680,180],[940,300],[1180,220],[1340,320],
+            [200,460],[500,380],[760,490],[1020,400],[1280,500],
+            [160,680],[460,600],[720,680],[980,610],[1240,700],
+          ].map(([cx, cy], i) => (
+            <circle key={i} cx={cx} cy={cy} r={3 + (i % 3) * 0.6} />
+          ))}
         </g>
       </svg>
     </>
   );
 }
 
-function LoginView({ onLogin }) {
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function submit(e) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const result = await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
-      onLogin(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="relative min-h-full overflow-hidden px-4">
-      <CyberBackdrop />
-      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
-        <div className="w-full rounded-2xl border border-white/40 bg-white/92 p-8 shadow-2xl backdrop-blur-md fade-in">
-          <div className="mb-6 text-center">
-            <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
-              <Network size={20} />
-            </div>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.26em] text-blue-800">IPDR INSIGHT</p>
-            <h1 className="mt-2 text-3xl font-bold heading-tight text-slate-900">Secure Access</h1>
-            <p className="mt-2 text-sm muted">Investigation dashboard authentication</p>
-          </div>
-          <form onSubmit={submit} className="space-y-4">
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              type="password"
-              className="w-full"
-            />
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
-            <button
-              disabled={loading}
-              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
-              style={{ backgroundColor: ACCENT }}
-            >
-              {loading ? "Signing in..." : "Sign in"}
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
+/* ============================================================
+   SKELETON
+   ============================================================ */
+function Skeleton({ className = "" }) {
+  return <div className={`skeleton ${className}`} />;
 }
 
-function BootScreen({ message, progress }) {
-  return (
-    <div className="relative min-h-full overflow-hidden">
-      <CyberBackdrop />
-      <div className="relative z-10 flex min-h-full items-center justify-center px-4">
-        <div className="w-full max-w-lg text-center">
-          <div className="boot-logo-pulse text-3xl font-bold tracking-[0.18em] text-white">IPDR INSIGHT</div>
-          <p className="mt-3 text-xs uppercase tracking-[0.26em] text-blue-200/90">System initializing</p>
-          <div className="mt-8 h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-            <div
-              className="h-full rounded-full bg-blue-300 transition-all duration-300"
-              style={{ width: `${Math.max(8, Math.min(100, progress))}%` }}
-            />
-          </div>
-          <p className="mt-4 text-sm text-slate-200">{message}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* ============================================================
+   STAT CARD with count-up animation
+   ============================================================ */
+function StatCard({ label, value, icon: Icon, accent = ACCENT, sublabel }) {
+  const animated = useCountUp(typeof value === "number" ? value : 0);
+  const display = typeof value === "number" ? animated : value;
 
-function StatCard({ label, value, icon: Icon, accent }) {
   return (
-    <div className="card card-interactive border-l-4 p-5 fade-in" style={{ borderLeftColor: accent }}>
+    <div
+      className="card card-interactive p-5 fade-in"
+      style={{ borderLeft: `3px solid ${accent}` }}
+    >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium muted">{label}</p>
-          <p className="mt-3 text-3xl font-bold heading-tight text-slate-900">{value}</p>
+          <p className="label">{label}</p>
+          <p
+            className="mt-3 text-3xl font-bold heading-tight"
+            style={{ color: accent === DANGER ? "#f87171" : "var(--text-primary)" }}
+          >
+            {display}
+          </p>
+          {sublabel && <p className="mt-1 text-xs muted">{sublabel}</p>}
         </div>
-        <div className="rounded-full p-2.5" style={{ backgroundColor: `${accent}1a` }}>
+        <div className="rounded-xl p-2.5" style={{ background: `${accent}1f` }}>
           <Icon size={18} style={{ color: accent }} />
         </div>
       </div>
@@ -298,14 +238,181 @@ function StatCard({ label, value, icon: Icon, accent }) {
   );
 }
 
-function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) {
-  const width = 940;
-  const height = 560;
+/* ============================================================
+   WHY FLAGGED POPOVER
+   ============================================================ */
+function WhyFlaggedPopover({ details = [], risk, mlData }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handle(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-xs font-medium"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <Info size={12} />
+        Why flagged?
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 z-50 mt-2 w-80 rounded-2xl p-4 shadow-2xl fade-in"
+          style={{
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border-default)",
+            minWidth: "280px",
+          }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-white">Risk Breakdown</p>
+            <button onClick={() => setOpen(false)} style={{ color: "var(--text-muted)" }}>
+              <X size={14} />
+            </button>
+          </div>
+          <ul className="space-y-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            {details.length
+              ? details.map((d, i) => (
+                  <li key={i} className="flex items-start gap-2 rounded-lg p-2" style={{ background: "var(--bg-raised)" }}>
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: "var(--accent)" }} />
+                    <span>
+                      {d.message}{" "}
+                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>
+                        → +{d.points}
+                      </span>
+                    </span>
+                  </li>
+                ))
+              : <li className="muted">No triggered rules.</li>}
+          </ul>
+          {mlData && (
+            <div className="mt-3 rounded-lg p-2" style={{ background: "var(--ml-purple-soft)", border: "1px solid rgba(168,85,247,0.3)" }}>
+              <p className="text-xs font-semibold" style={{ color: "#c084fc" }}>ML Anomaly Score: {mlData.anomaly_score}</p>
+              <p className="text-xs muted mt-0.5">{mlData.cluster_label || "—"}</p>
+            </div>
+          )}
+          <div className="mt-3 rounded-lg p-2" style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}>
+            <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+              Rule Score: {risk?.score ?? 0} → {risk?.level ?? "Low"}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ML RADAR CHART (SVG)
+   ============================================================ */
+function RadarChart({ features = {}, size = 220 }) {
+  const featureNames = [
+    ["night_call_ratio", "Night %"],
+    ["short_session_ratio", "Short Sess."],
+    ["fan_out_rate", "Fan-out"],
+    ["blacklist_contact_ratio", "Blacklist"],
+    ["call_velocity_per_hour", "Velocity"],
+    ["distinct_b_ratio", "B-diversity"],
+  ];
+  const n = featureNames.length;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.38;
+
+  const angles = featureNames.map((_, i) => ((Math.PI * 2 * i) / n) - Math.PI / 2);
+
+  // Normalize velocity to 0-1 (cap at 20 calls/hr)
+  const normalize = (key, val) => {
+    if (key === "call_velocity_per_hour") return Math.min(1, (val || 0) / 20);
+    return Math.min(1, Math.max(0, val || 0));
+  };
+
+  const points = featureNames.map(([key], i) => {
+    const v = normalize(key, features[key]);
+    return [cx + r * v * Math.cos(angles[i]), cy + r * v * Math.sin(angles[i])];
+  });
+
+  const polyPath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ") + " Z";
+
+  // Grid rings
+  const rings = [0.25, 0.5, 0.75, 1].map((frac) => {
+    const ringPts = angles.map((a) => [cx + r * frac * Math.cos(a), cy + r * frac * Math.sin(a)]);
+    return ringPts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ") + " Z";
+  });
+
+  const axisEnds = angles.map((a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+
+  return (
+    <svg width={size} height={size} className="mx-auto">
+      {/* Grid rings */}
+      {rings.map((d, i) => (
+        <path key={i} d={d} fill="none" stroke="var(--border-subtle)" strokeWidth={0.8} />
+      ))}
+      {/* Axis lines */}
+      {axisEnds.map(([x, y], i) => (
+        <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border-subtle)" strokeWidth={0.8} />
+      ))}
+      {/* Data polygon */}
+      <path d={polyPath} className="radar-polygon" />
+      {/* Data points */}
+      {points.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={3} fill={ACCENT} stroke="var(--bg-surface)" strokeWidth={1.5} />
+      ))}
+      {/* Labels */}
+      {featureNames.map(([, label], i) => {
+        const ax = cx + (r + 18) * Math.cos(angles[i]);
+        const ay = cy + (r + 18) * Math.sin(angles[i]);
+        return (
+          <text
+            key={i}
+            x={ax}
+            y={ay}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={9}
+            fill="var(--text-muted)"
+            fontFamily="Inter, sans-serif"
+          >
+            {label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ============================================================
+   NETWORK GRAPH — Enhanced D3 Force with pulsing flagged nodes
+   ============================================================ */
+function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {}, mlScores = {} }) {
+  const width = 1000;
+  const height = 580;
   const [hover, setHover] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
+  const [pulse, setPulse] = useState(0);
+  const animRef = useRef(null);
+
+  // Pulsing animation for flagged nodes
+  useEffect(() => {
+    let frame;
+    const tick = () => {
+      setPulse((p) => (p + 1) % 60);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const graph = useMemo(() => {
     const degree = {};
@@ -318,244 +425,659 @@ function NetworkGraph({ nodes = [], edges = [], focusedNode, riskLookup = {} }) 
       ...node,
       degree: degree[node.id] || 1,
       riskLevel: riskLookup[node.id] || "Low",
+      mlScore: mlScores[node.id] ?? null,
     }));
-    const simLinks = edges.map((edge) => ({ ...edge }));
+    const simLinks = edges.map((e) => ({ ...e }));
 
     const radius = (node) => {
-      const base = node.type === "a" ? 10 : 7;
-      return Math.min(24, base + Math.sqrt(node.degree || 1));
+      const base = node.type === "a" ? 11 : 7;
+      return Math.min(26, base + Math.sqrt(node.degree || 1));
     };
 
     const sim = forceSimulation(simNodes)
-      .force("link", forceLink(simLinks).id((d) => d.id).distance((d) => 110 - Math.min(35, Number(d.weight || 1) * 2)).strength(0.45))
-      .force("charge", forceManyBody().strength((d) => (d.type === "a" ? -420 : -220)))
-      .force("collide", forceCollide().radius((d) => radius(d) + 8).strength(0.95))
+      .force("link", forceLink(simLinks).id((d) => d.id).distance((d) => 120 - Math.min(40, Number(d.weight || 1) * 2)).strength(0.45))
+      .force("charge", forceManyBody().strength((d) => (d.type === "a" ? -480 : -240)))
+      .force("collide", forceCollide().radius((d) => radius(d) + 10).strength(0.92))
       .force("center", forceCenter(width / 2, height / 2))
-      .force("center-x", forceX(width / 2).strength((d) => (d.type === "a" ? 0.15 : 0.04)))
-      .force("center-y", forceY(height / 2).strength((d) => (d.type === "a" ? 0.15 : 0.04)))
-      .force("ring-b", forceRadial(Math.min(width, height) * 0.32, width / 2, height / 2).strength((d) => (d.type === "b" ? 0.065 : 0)))
+      .force("cx", forceX(width / 2).strength((d) => (d.type === "a" ? 0.12 : 0.04)))
+      .force("cy", forceY(height / 2).strength((d) => (d.type === "a" ? 0.12 : 0.04)))
+      .force("ring", forceRadial(Math.min(width, height) * 0.3, width / 2, height / 2).strength((d) => (d.type === "b" ? 0.07 : 0)))
       .stop();
 
-    for (let i = 0; i < 280; i += 1) sim.tick();
+    for (let i = 0; i < 300; i++) sim.tick();
     simNodes.forEach((n) => {
-      n.x = Math.max(35, Math.min(width - 35, n.x || width / 2));
-      n.y = Math.max(35, Math.min(height - 35, n.y || height / 2));
+      n.x = Math.max(40, Math.min(width - 40, n.x || width / 2));
+      n.y = Math.max(40, Math.min(height - 40, n.y || height / 2));
     });
 
     return { nodes: simNodes, links: simLinks, radius };
-  }, [nodes, edges, riskLookup]);
+  }, [nodes, edges, riskLookup, mlScores]);
 
-  const resetView = () => {
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
-  };
-
-  const adjustZoom = (delta) => {
-    setZoom((z) => Math.max(0.5, Math.min(2.2, z + delta)));
-  };
-
-  const onWheel = (e) => {
-    e.preventDefault();
-    adjustZoom(e.deltaY > 0 ? -0.08 : 0.08);
-  };
-
-  const onMouseDown = (e) => {
-    setDragging(true);
-    dragRef.current = { x: e.clientX, y: e.clientY };
-  };
-
+  const resetView = () => { setZoom(1); setOffset({ x: 0, y: 0 }); };
+  const adjustZoom = (d) => setZoom((z) => Math.max(0.35, Math.min(2.8, z + d)));
+  const onWheel = (e) => { e.preventDefault(); adjustZoom(e.deltaY > 0 ? -0.1 : 0.1); };
+  const onMouseDown = (e) => { setDragging(true); dragRef.current = { x: e.clientX, y: e.clientY }; };
   const onMouseMove = (e) => {
     if (dragging && dragRef.current) {
-      const dx = e.clientX - dragRef.current.x;
-      const dy = e.clientY - dragRef.current.y;
-      setOffset((o) => ({ x: o.x + dx, y: o.y + dy }));
+      setOffset((o) => ({ x: o.x + e.clientX - dragRef.current.x, y: o.y + e.clientY - dragRef.current.y }));
       dragRef.current = { x: e.clientX, y: e.clientY };
     }
   };
+  const stopDrag = () => { setDragging(false); dragRef.current = null; };
 
-  const stopDrag = () => {
-    setDragging(false);
-    dragRef.current = null;
-  };
+  const pulseScale = 1 + 0.12 * Math.sin((pulse / 60) * Math.PI * 2);
 
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="relative w-full overflow-hidden rounded-2xl" style={{ aspectRatio: "16/10", background: "#f8fafc", border: "1px solid var(--border-default)" }}>
+      {/* Controls */}
       <div className="absolute right-3 top-3 z-20 flex gap-2">
-        <button onClick={() => adjustZoom(0.12)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-sm">
-          <ZoomIn size={16} />
+        <button onClick={() => adjustZoom(0.15)} className="btn-secondary" style={{ padding: "4px 8px", borderRadius: 8, fontSize: 12 }}>
+          <ZoomIn size={14} />
         </button>
-        <button onClick={() => adjustZoom(-0.12)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700 shadow-sm">
-          <ZoomOut size={16} />
+        <button onClick={() => adjustZoom(-0.15)} className="btn-secondary" style={{ padding: "4px 8px", borderRadius: 8, fontSize: 12 }}>
+          <ZoomOut size={14} />
         </button>
-        <button onClick={resetView} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
-          <RefreshCw size={14} className="inline mr-1" />
-          Reset view
+        <button onClick={resetView} className="btn-secondary" style={{ padding: "4px 10px", borderRadius: 8, fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+          <RefreshCw size={12} /> Reset
         </button>
       </div>
 
-      <div className="absolute left-3 top-3 z-20 rounded-lg border border-slate-200 bg-white/95 p-2 text-xs text-slate-600 shadow-sm">
-        <div className="font-semibold text-slate-800">Legend</div>
-        <div className="mt-1 flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ACCENT }} />A-party node</div>
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full border border-slate-400 bg-white" />B-party node</div>
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Flagged node</div>
-        <div className="mt-1">Node size = interaction volume</div>
+      {/* Legend */}
+      <div className="absolute left-3 top-3 z-20 rounded-xl p-3 text-xs" style={{ background: "rgba(255,255,255,0.95)", border: "1px solid var(--border-default)", boxShadow: "0 2px 8px rgba(15,23,42,0.08)" }}>
+        <p className="font-semibold mb-2" style={{ color: "var(--text-primary)", fontSize: 11 }}>Legend</p>
+        {[
+          [ACCENT, "A-party (caller)"],
+          ["#94a3b8", "B-party (destination)"],
+          [DANGER, "High Risk"],
+          ["#d97706", "Medium Risk"],
+          [ML_COLOR, "ML Anomaly"],
+        ].map(([c, l]) => (
+          <div key={l} className="flex items-center gap-2 mb-1">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: c }} />
+            <span style={{ color: "var(--text-secondary)" }}>{l}</span>
+          </div>
+        ))}
       </div>
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="h-full w-full cursor-grab"
+        className="h-full w-full"
+        style={{ cursor: dragging ? "grabbing" : "grab" }}
         onWheel={onWheel}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={stopDrag}
-        onMouseLeave={() => {
-          stopDrag();
-          setHover(null);
-        }}
+        onMouseLeave={() => { stopDrag(); setHover(null); }}
       >
+        <defs>
+          <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="rgba(148,163,184,0.2)" />
+          </marker>
+          <radialGradient id="nodeGradient-a" cx="40%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#1e40af" />
+          </radialGradient>
+          <radialGradient id="nodeGradient-high" cx="40%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="#ef4444" />
+            <stop offset="100%" stopColor="#991b1b" />
+          </radialGradient>
+          <radialGradient id="nodeGradient-medium" cx="40%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="#f59e0b" />
+            <stop offset="100%" stopColor="#b45309" />
+          </radialGradient>
+          <radialGradient id="nodeGradient-ml" cx="40%" cy="40%" r="60%">
+            <stop offset="0%" stopColor="#8b5cf6" />
+            <stop offset="100%" stopColor="#5b21b6" />
+          </radialGradient>
+          <filter id="glow-red">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+            <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <filter id="glow-blue">
+            <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+            <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <filter id="glow-purple">
+            <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+            <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+
         <g transform={`translate(${offset.x} ${offset.y}) scale(${zoom})`}>
-          {graph.links.map((link, index) => {
-            const sx = link.source.x;
-            const sy = link.source.y;
-            const tx = link.target.x;
-            const ty = link.target.y;
-            const mx = (sx + tx) / 2 + (ty - sy) * 0.08;
-            const my = (sy + ty) / 2 + (sx - tx) * 0.08;
+          {/* Edges */}
+          {graph.links.map((link, i) => {
+            const sx = link.source.x, sy = link.source.y;
+            const tx = link.target.x, ty = link.target.y;
+            const mx = (sx + tx) / 2 + (ty - sy) * 0.1;
+            const my = (sy + ty) / 2 + (sx - tx) * 0.1;
+            const w = Number(link.weight || 1);
+            const riskSrc = riskLookup[link.source.id] || "Low";
+            const edgeColor = riskSrc === "High" ? "rgba(239,68,68,0.25)" : riskSrc === "Medium" ? "rgba(245,158,11,0.2)" : "rgba(99,130,200,0.12)";
             return (
               <path
-                key={index}
+                key={i}
                 d={`M ${sx} ${sy} Q ${mx} ${my} ${tx} ${ty}`}
                 fill="none"
-                stroke="rgba(148,163,184,0.38)"
-                strokeWidth={Math.max(0.8, Math.min(2.2, Number(link.weight || 1) * 0.22))}
+                stroke={edgeColor}
+                strokeWidth={Math.max(0.6, Math.min(2.8, w * 0.25))}
               />
             );
           })}
+
+          {/* Nodes */}
           {graph.nodes.map((node) => {
             const r = graph.radius(node);
-            const focused = focusedNode && focusedNode === node.id;
-            const isFlagged = node.riskLevel === "High" || node.riskLevel === "Medium";
-            const fill = isFlagged ? (node.riskLevel === "High" ? "#ef4444" : "#f59e0b") : node.type === "a" ? ACCENT : "#ffffff";
-            const stroke = node.type === "a" || isFlagged ? "#ffffff" : "#64748b";
-            const ring = focused ? "#22c55e" : isFlagged ? `${fill}55` : "transparent";
+            const focused = focusedNode === node.id;
+            const isHigh = node.riskLevel === "High";
+            const isMed = node.riskLevel === "Medium";
+            const mlAnomaly = mlScores[node.id] >= 60;
+            const fill = isHigh
+              ? "url(#nodeGradient-high)"
+              : isMed
+              ? "url(#nodeGradient-medium)"
+              : mlAnomaly
+              ? "url(#nodeGradient-ml)"
+              : node.type === "a"
+              ? "url(#nodeGradient-a)"
+              : "rgba(30,42,70,0.9)";
+
+            const glowFilter = isHigh ? "url(#glow-red)" : focused ? "url(#glow-blue)" : mlAnomaly ? "url(#glow-purple)" : undefined;
+            const ringScale = (isHigh || isMed) ? pulseScale : 1;
+
             return (
               <g
                 key={node.id}
                 transform={`translate(${node.x}, ${node.y})`}
-                onMouseEnter={(e) =>
-                  setHover({
-                    x: e.clientX,
-                    y: e.clientY,
-                    id: node.id,
-                    interactions: node.degree,
-                    risk: node.riskLevel,
-                  })
-                }
-                onMouseMove={(e) =>
-                  setHover((h) =>
-                    h
-                      ? {
-                          ...h,
-                          x: e.clientX,
-                          y: e.clientY,
-                        }
-                      : h
-                  )
-                }
+                onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY, node })}
+                onMouseMove={(e) => setHover((h) => h ? { ...h, x: e.clientX, y: e.clientY } : h)}
                 onMouseLeave={() => setHover(null)}
               >
-                <circle r={r + 4} fill={ring} />
-                <circle r={r} fill={fill} stroke={stroke} strokeWidth={node.type === "b" ? 1.8 : 2.6} />
+                {/* Pulse ring for flagged nodes */}
+                {(isHigh || isMed || focused) && (
+                  <circle
+                    r={(r + 6) * ringScale}
+                    fill="none"
+                    stroke={focused ? ACCENT : isHigh ? DANGER : "#f59e0b"}
+                    strokeWidth={1.2}
+                    opacity={0.4 + 0.3 * Math.sin((pulse / 60) * Math.PI * 2)}
+                  />
+                )}
+                {/* ML anomaly outer ring */}
+                {mlAnomaly && !isHigh && (
+                  <circle
+                    r={r + 8}
+                    fill="none"
+                    stroke={ML_COLOR}
+                    strokeWidth={1}
+                    strokeDasharray="3 3"
+                    opacity={0.5}
+                  />
+                )}
+                {/* Main node */}
+                <circle
+                  r={r}
+                  fill={fill}
+                  stroke={focused ? ACCENT : node.type === "b" ? "rgba(99,130,200,0.4)" : "rgba(255,255,255,0.15)"}
+                  strokeWidth={focused ? 2.5 : node.type === "b" ? 1.5 : 2}
+                  filter={glowFilter}
+                />
+                {/* Center dot for A-party */}
+                {node.type === "a" && (
+                  <circle r={2} fill="rgba(255,255,255,0.6)" />
+                )}
               </g>
             );
           })}
         </g>
       </svg>
 
-      {hover ? (
+      {/* Hover tooltip */}
+      {hover && (
         <div
-          className="pointer-events-none fixed z-30 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-lg"
-          style={{ left: hover.x + 12, top: hover.y + 12 }}
+          className="pointer-events-none fixed z-50 rounded-xl p-3 text-xs shadow-2xl"
+          style={{
+            left: hover.x + 14, top: hover.y + 14,
+            background: "#ffffff",
+            border: "1px solid var(--border-default)",
+            boxShadow: "0 4px 16px rgba(15,23,42,0.12)",
+            minWidth: 160,
+          }}
         >
-          <div className="font-semibold text-slate-900">{hover.id}</div>
-          <div className="muted">Interactions: {hover.interactions}</div>
-          <div className="muted">Risk: {hover.risk}</div>
+          <p className="font-semibold mb-1 mono" style={{ color: "var(--text-primary)", fontSize: 11 }}>
+            {hover.node.id}
+          </p>
+          <p className="muted">Type: {hover.node.type === "a" ? "A-Party (Caller)" : "B-Party (Destination)"}</p>
+          <p className="muted">Interactions: {hover.node.degree}</p>
+          {hover.node.riskLevel !== "Low" && (
+            <p style={{ color: hover.node.riskLevel === "High" ? "#f87171" : "#fbbf24" }}>
+              Risk: {hover.node.riskLevel}
+            </p>
+          )}
+          {mlScores[hover.node.id] != null && (
+            <p style={{ color: mlScoreColor(mlScores[hover.node.id]) }}>
+              ML Score: {hover.node.mlScore}
+            </p>
+          )}
         </div>
-      ) : null}
+      )}
+
+      {/* Node count badge */}
+      <div className="absolute bottom-3 right-3 text-xs rounded-lg px-2 py-1" style={{ background: "rgba(255,255,255,0.9)", color: "var(--text-muted)", border: "1px solid var(--border-subtle)" }}>
+        {graph.nodes.length} nodes · {graph.links.length} edges
+      </div>
     </div>
   );
 }
 
+/* ============================================================
+   UPLOAD DROPZONE
+   ============================================================ */
 function UploadDropzone({ onFile }) {
   const [dragging, setDragging] = useState(false);
   return (
     <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) onFile(file);
+      onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); }}
+      className="rounded-xl border-2 border-dashed p-4 text-sm transition"
+      style={{
+        borderColor: dragging ? ACCENT : "var(--border-default)",
+        background: dragging ? "var(--accent-soft)" : "var(--bg-raised)",
       }}
-      className={`rounded-xl border-2 border-dashed p-4 text-sm transition ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
     >
       <div className="flex items-center gap-3">
-        <div className="rounded-full bg-blue-100 p-2 text-blue-700">
-          <Upload size={16} />
+        <div className="rounded-xl p-2" style={{ background: "var(--accent-soft)" }}>
+          <Upload size={16} style={{ color: ACCENT }} />
         </div>
         <div>
-          <p className="font-medium text-slate-800">Drag & drop IPDR file here</p>
-          <p className="muted">Supports CSV, TXT, JSON</p>
+          <p className="font-medium" style={{ color: "var(--text-primary)" }}>Drop IPDR file here to upload</p>
+          <p className="muted">Supports CSV, TXT, JSON · All operator formats auto-detected</p>
         </div>
       </div>
     </div>
   );
 }
 
-function DashboardView({ token, onOpenCasePicker }) {
-  const [summary, setSummary] = useState(null);
-  const [network, setNetwork] = useState({ nodes: [], edges: [] });
-  const [timeline, setTimeline] = useState([]);
-  const [topFlagged, setTopFlagged] = useState([]);
-  const [uploadResult, setUploadResult] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [focusedNode, setFocusedNode] = useState(null);
-  const [topFilter, setTopFilter] = useState("all");
+/* ============================================================
+   ACTIVITY HEATMAP — Time-of-day × Day-of-week
+   ============================================================ */
+function ActivityHeatmap({ grid: gridProp }) {
+  const HOURS = Array.from({ length: 24 }, (_, i) => i);
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  const riskLookup = useMemo(
-    () => Object.fromEntries(topFlagged.map((r) => [r.a_party, r.risk_level])),
-    [topFlagged]
+  // Accept pre-computed 7×24 grid from the API
+  const grid = gridProp || Array.from({ length: 7 }, () => Array(24).fill(0));
+
+  const maxVal = Math.max(1, ...grid.flatMap((row) => row));
+  const cellW = 22;
+  const cellH = 22;
+  const padL = 36;
+  const padT = 28;
+  const svgW = padL + 24 * cellW + 8;
+  const svgH = padT + 7 * cellH + 12;
+
+  function heatColor(val) {
+    const t = val / maxVal;
+    if (t === 0) return "#f1f5f9";
+    if (t < 0.25) return "rgba(30,64,175,0.18)";
+    if (t < 0.5) return "rgba(30,64,175,0.42)";
+    if (t < 0.75) return "rgba(217,119,6,0.65)";
+    return "rgba(185,28,28,0.78)";
+  }
+
+  const [hovCell, setHovCell] = useState(null);
+
+  return (
+    <div className="relative">
+      <svg width={svgW} height={svgH} className="w-full" style={{ maxWidth: svgW }}>
+        {/* Hour labels */}
+        {HOURS.filter((h) => h % 3 === 0).map((h) => (
+          <text key={h} x={padL + h * cellW + cellW / 2} y={14} textAnchor="middle" fontSize={8} fill="var(--text-muted)" fontFamily="JetBrains Mono, monospace">
+            {String(h).padStart(2, "0")}h
+          </text>
+        ))}
+        {/* Day labels */}
+        {DAYS.map((d, di) => (
+          <text key={d} x={padL - 6} y={padT + di * cellH + cellH / 2 + 3} textAnchor="end" fontSize={9} fill="var(--text-muted)" fontFamily="Inter, sans-serif">
+            {d}
+          </text>
+        ))}
+        {/* Heat cells */}
+        {DAYS.map((_, di) =>
+          HOURS.map((h) => (
+            <rect
+              key={`${di}-${h}`}
+              x={padL + h * cellW + 1}
+              y={padT + di * cellH + 1}
+              width={cellW - 2}
+              height={cellH - 2}
+              rx={3}
+              fill={heatColor(grid[di][h])}
+              onMouseEnter={(e) => setHovCell({ day: DAYS[di], hour: h, count: grid[di][h], x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setHovCell(null)}
+              style={{ cursor: "pointer" }}
+            />
+          ))
+        )}
+      </svg>
+
+      {hovCell && (
+        <div
+          className="pointer-events-none fixed z-50 rounded-xl p-3 text-xs shadow-2xl"
+          style={{ left: hovCell.x + 12, top: hovCell.y + 12, background: "#ffffff", border: "1px solid var(--border-default)", boxShadow: "0 4px 12px rgba(15,23,42,0.1)" }}
+        >
+          <p className="font-semibold" style={{ color: "var(--text-primary)" }}>{hovCell.day} at {String(hovCell.hour).padStart(2, "0")}:00</p>
+          <p className="muted">{hovCell.count} interactions</p>
+        </div>
+      )}
+    </div>
   );
+}
 
-  const filteredTopFlagged = useMemo(() => {
-    return topFlagged.filter((row) => {
-      const source = flagSource(row);
-      if (topFilter === "auto") return source === "auto";
-      if (topFilter === "manual") return source === "manual";
-      if (topFilter === "blacklist") return source === "blacklist";
-      return true;
-    });
-  }, [topFlagged, topFilter]);
+/* ============================================================
+   ML INSIGHTS VIEW
+   ============================================================ */
+function MLInsightsView({ token }) {
+  const [anomalies, setAnomalies] = useState([]);
+  const [clusters, setClusters] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [predicting, setPredicting] = useState(false);
+  const [prediction, setPrediction] = useState(null);
 
-  async function load() {
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    Promise.all([
+      apiFetch("/ml/anomaly", {}, token).catch(() => ({ results: [] })),
+      apiFetch("/ml/clusters", {}, token).catch(() => ({ results: [] })),
+    ])
+      .then(([aRes, cRes]) => {
+        setAnomalies(aRes.results || []);
+        setClusters(cRes.results || []);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+
+  async function loadPrediction(aParty) {
+    setSelected(aParty);
+    setPredicting(true);
+    setPrediction(null);
+    try {
+      const res = await apiFetch(`/ml/predict/${encodeURIComponent(aParty)}`, {}, token);
+      setPrediction(res);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPredicting(false);
+    }
+  }
+
+  const clusterMap = useMemo(() => {
+    const m = {};
+    clusters.forEach((c) => { m[c.a_party] = c; });
+    return m;
+  }, [clusters]);
+
+  const topAnomalies = anomalies.slice(0, 12);
+
+  return (
+    <div className="space-y-6 fade-in">
+      {/* Alert Banner */}
+      {anomalies.some((a) => a.is_anomaly) && (
+        <div
+          className="rounded-2xl px-5 py-4 flex items-center gap-4 pulse-ring"
+          style={{ background: "rgba(185,28,28,0.06)", border: "1px solid rgba(185,28,28,0.2)" }}
+        >
+          <Brain size={22} style={{ color: DANGER, flexShrink: 0 }} />
+          <div>
+            <p className="font-semibold text-sm" style={{ color: "#991b1b" }}>
+              ML Engine Detected {anomalies.filter((a) => a.is_anomaly).length} Behavioral Anomalies
+            </p>
+            <p className="text-xs muted mt-0.5">
+              Isolation Forest identified statistically abnormal communication patterns. Review flagged entities below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard label="A-parties Analyzed" value={anomalies.length} icon={Brain} accent={ML_COLOR} />
+        <StatCard label="Anomalies Detected" value={anomalies.filter((a) => a.is_anomaly).length} icon={AlertTriangle} accent={DANGER} />
+        <StatCard label="Behavioral Clusters" value={new Set(clusters.map((c) => c.cluster).filter((c) => c >= 0)).size} icon={Target} accent={ACCENT} />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1.1fr]">
+        {/* Anomaly Scores Table */}
+        <section className="card p-5">
+          <h2 className="text-lg font-bold heading-tight mb-4" style={{ color: "var(--text-primary)" }}>
+            ML Anomaly Rankings
+          </h2>
+          <p className="text-xs muted mb-4">Isolation Forest scores (0-100). Higher = more anomalous behavior.</p>
+          {loading ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)}
+            </div>
+          ) : topAnomalies.length === 0 ? (
+            <div className="text-center py-8 muted text-sm">No data yet. Upload IPDR logs first.</div>
+          ) : (
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+              {topAnomalies.map((a) => {
+                const cluster = clusterMap[a.a_party];
+                const scoreColor = mlScoreColor(a.anomaly_score);
+                const isSelected = selected === a.a_party;
+                return (
+                  <button
+                    key={a.a_party}
+                    onClick={() => loadPrediction(a.a_party)}
+                    className="w-full rounded-xl p-3 text-left transition card-interactive"
+                    style={{
+                      background: isSelected ? "var(--accent-soft)" : "var(--bg-raised)",
+                      border: `1px solid ${isSelected ? "rgba(30,64,175,0.3)" : "var(--border-subtle)"}`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{a.a_party}</span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {a.is_anomaly && <span className="badge badge-ml">ANOMALY</span>}
+                        <span
+                          className="text-xs font-bold mono px-2 py-0.5 rounded-lg"
+                          style={{ background: `${scoreColor}22`, color: scoreColor, border: `1px solid ${scoreColor}44` }}
+                        >
+                          {a.anomaly_score}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Score bar */}
+                    <div className="mt-2 h-1.5 rounded-full" style={{ background: "var(--bg-panel)" }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${a.anomaly_score}%`, background: `linear-gradient(90deg, ${ACCENT}, ${scoreColor})` }}
+                      />
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-3 text-xs muted">
+                      <span>{a.interaction_count} interactions</span>
+                      {cluster && <span>{cluster.cluster_label}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Detail Panel */}
+        <section className="card p-5">
+          {prediction ? (
+            <div className="space-y-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="label">ML Prediction</p>
+                  <h3 className="heading-tight text-lg mt-1 mono" style={{ color: "var(--text-primary)" }}>{prediction.a_party}</h3>
+                  <div className="flex items-center gap-2 mt-2">
+                    {prediction.is_anomaly && <span className="badge badge-ml">ML ANOMALY</span>}
+                    <span className="badge" style={{ background: `${mlScoreColor(prediction.anomaly_score)}22`, color: mlScoreColor(prediction.anomaly_score), borderColor: `${mlScoreColor(prediction.anomaly_score)}44` }}>
+                      Score: {prediction.anomaly_score}
+                    </span>
+                    <span className="badge badge-ok">
+                      Conf: {Math.round(prediction.confidence * 100)}%
+                    </span>
+                  </div>
+                </div>
+                <div
+                  className="rounded-xl px-3 py-2 text-center"
+                  style={{ background: "var(--bg-panel)", minWidth: 80 }}
+                >
+                  <p className="text-xs muted">Cluster</p>
+                  <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--text-accent)" }}>{prediction.cluster_label}</p>
+                </div>
+              </div>
+
+              {/* Radar chart */}
+              <div>
+                <p className="label mb-3">Behavioral Profile</p>
+                <RadarChart features={prediction.features} size={220} />
+              </div>
+
+              {/* Natural language insight */}
+              <div
+                className="rounded-xl p-4 text-sm"
+                style={{ background: "rgba(109,40,217,0.06)", border: "1px solid rgba(109,40,217,0.15)" }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={14} style={{ color: ML_COLOR }} />
+                  <span className="font-semibold text-xs" style={{ color: "#6d28d9" }}>AI Insight</span>
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-secondary)", lineHeight: 1.6 }}>{prediction.insight}</p>
+              </div>
+
+              {/* Top contributors */}
+              {prediction.top_contributors?.length > 0 && (
+                <div>
+                  <p className="label mb-2">Top Risk Contributors</p>
+                  <div className="space-y-2">
+                    {prediction.top_contributors.map((c) => (
+                      <div key={c.feature} className="flex items-center gap-3 rounded-lg p-2" style={{ background: "var(--bg-raised)" }}>
+                        <div className="flex-1">
+                          <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{c.feature.replace(/_/g, " ")}</p>
+                          <p className="text-xs muted">Value: {c.value}</p>
+                        </div>
+                        <span
+                          className="text-xs mono font-bold px-2 py-0.5 rounded"
+                          style={{
+                            background: Math.abs(c.z_score) > 2 ? "rgba(239,68,68,0.15)" : "rgba(245,158,11,0.15)",
+                            color: Math.abs(c.z_score) > 2 ? "#f87171" : "#fbbf24",
+                          }}
+                        >
+                          z={c.z_score > 0 ? "+" : ""}{c.z_score}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : predicting ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12" />
+              <Skeleton className="h-48" />
+              <Skeleton className="h-24" />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full py-12 text-center">
+              <Brain size={40} className="mb-4" style={{ color: "var(--border-default)" }} />
+              <p className="font-semibold" style={{ color: "var(--text-secondary)" }}>Select an A-party</p>
+              <p className="text-xs muted mt-1">Click any row to view full ML behavioral prediction</p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Cluster overview */}
+      {clusters.length > 0 && (
+        <section className="card p-5">
+          <h2 className="text-lg font-bold heading-tight mb-2" style={{ color: "var(--text-primary)" }}>
+            Behavioral Cluster Map
+          </h2>
+          <p className="text-xs muted mb-4">DBSCAN clustering groups A-parties by communication behavior similarity. Cluster -1 = isolated/extreme behavior.</p>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(
+              clusters.reduce((acc, c) => {
+                const k = c.cluster_label;
+                if (!acc[k]) acc[k] = [];
+                acc[k].push(c.a_party);
+                return acc;
+              }, {})
+            ).map(([label, parties]) => (
+              <div
+                key={label}
+                className="rounded-xl p-3"
+                style={{
+                  background: label === "Isolated / Extreme" ? "rgba(239,68,68,0.1)" : "var(--bg-raised)",
+                  border: `1px solid ${label === "Isolated / Extreme" ? "rgba(239,68,68,0.3)" : "var(--border-subtle)"}`,
+                  minWidth: 160,
+                }}
+              >
+                <p className="text-xs font-semibold mb-2" style={{ color: label === "Isolated / Extreme" ? "#f87171" : ML_COLOR }}>
+                  {label}
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {parties.slice(0, 4).map((p) => (
+                    <span key={p} className="mono text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--bg-panel)", color: "var(--text-secondary)" }}>
+                      {p}
+                    </span>
+                  ))}
+                  {parties.length > 4 && <span className="text-xs muted">+{parties.length - 4}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   PDF REPORT EXPORT
+   ============================================================ */
+async function exportReportPdf(element, fileName) {
+  if (!element) return;
+  const canvas = await html2canvas(element, { scale: 2, backgroundColor: "#0e1628", useCORS: true });
+  const imgData = canvas.toDataURL("image/png");
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pW = pdf.internal.pageSize.getWidth();
+  const pH = pdf.internal.pageSize.getHeight();
+  const imgH = (canvas.height * pW) / canvas.width;
+  let remaining = imgH;
+  let pos = 0;
+  while (remaining > 0) {
+    pdf.addImage(imgData, "PNG", 0, pos, pW, imgH);
+    remaining -= pH;
+    if (remaining > 0) { pdf.addPage(); pos -= pH; }
+  }
+  pdf.save(fileName);
+}
+
+/* ============================================================
+   LOGIN VIEW
+   ============================================================ */
+function LoginView({ onLogin }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("admin123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const [summaryData, networkData, timelineData, flaggedData] = await Promise.all([
-        apiFetch("/dashboard/summary", {}, token),
-        apiFetch("/dashboard/network?limit=500", {}, token),
-        apiFetch("/dashboard/timeline?granularity=day", {}, token),
-        apiFetch("/flags/top", {}, token),
-      ]);
-      setSummary(summaryData);
-      setNetwork(networkData);
-      setTimeline(timelineData);
-      setTopFlagged(flaggedData);
+      const result = await apiFetch("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+      onLogin(result);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -563,9 +1085,229 @@ function DashboardView({ token, onOpenCasePicker }) {
     }
   }
 
+  return (
+    <div className="relative min-h-full overflow-hidden px-4">
+      <CyberBackdrop />
+      <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
+        <div
+          className="w-full rounded-2xl p-8 shadow-2xl fade-in"
+          style={{ background: "#ffffff", border: "1px solid var(--border-default)", backdropFilter: "blur(12px)" }}
+        >
+          <div className="mb-8 text-center">
+            <div
+              className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl mb-4 pulse-ring-blue"
+              style={{ background: "#eff6ff", border: "1px solid rgba(30,64,175,0.2)" }}
+            >
+              <ShieldAlert size={24} style={{ color: ACCENT }} />
+            </div>
+            <p className="label" style={{ color: ACCENT }}>Government of India — CIB</p>
+            <h1 className="mt-2 text-3xl font-bold heading-tight" style={{ color: "var(--text-primary)" }}>
+              IPDR Intelligence
+            </h1>
+            <p className="mt-1 text-sm muted">Secure Investigation Platform · RESTRICTED ACCESS</p>
+          </div>
+
+          <form onSubmit={submit} className="space-y-4">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              className="w-full"
+              autoComplete="username"
+              id="login-username"
+            />
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              type="password"
+              className="w-full"
+              autoComplete="current-password"
+              id="login-password"
+            />
+            {error && (
+              <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>
+                {error}
+              </div>
+            )}
+            <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-sm" id="login-submit">
+              {loading ? "Authenticating…" : "Sign In"}
+            </button>
+          </form>
+
+          <p className="mt-5 text-center text-xs muted">
+            Demo: admin / admin123 · For authorized personnel only
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   BOOT SCREEN
+   ============================================================ */
+function BootScreen({ message, progress }) {
+  return (
+    <div className="relative min-h-full overflow-hidden" style={{ background: "#0f172a" }}>
+      <CyberBackdrop />
+      <div className="relative z-10 flex min-h-full items-center justify-center px-4">
+        <div className="w-full max-w-lg text-center">
+          <div className="boot-logo-pulse text-4xl font-black tracking-[0.25em] mb-1" style={{ color: ACCENT }}>
+            IPDR
+          </div>
+          <div className="boot-logo-pulse text-xl font-light tracking-[0.5em]" style={{ color: "#94a3b8" }}>
+            INTELLIGENCE
+          </div>
+          <p className="mt-2 text-xs tracking-[0.3em] label" style={{ color: "#475569" }}>CIB · Criminal Investigation Branch</p>
+          <div className="mt-10 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "#1e293b" }}>
+            <div
+              className="h-full rounded-full transition-all duration-200"
+              style={{
+                width: `${Math.max(4, Math.min(100, progress))}%`,
+                background: `linear-gradient(90deg, ${ACCENT}, ${ML_COLOR})`,
+              }}
+            />
+          </div>
+          <p className="mt-4 text-sm" style={{ color: "#94a3b8" }}>{message}</p>
+          <p className="mt-2 text-xs mono" style={{ color: "#334155" }}>
+            {Math.round(progress)}% — SECURE CHANNEL ESTABLISHED
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   REPORT SHEET (for PDF export)
+   ============================================================ */
+function ReportSheet({ data, kind }) {
+  const title = kind === "case" ? data.name : `Investigation: ${data.a_party || data.subject}`;
+  const summary = kind === "case" ? data.summary : {
+    total_interactions: data.interactions?.length || 0,
+    risk_score: data.risk?.score || 0,
+    flag_count: data.flags?.length || 0,
+  };
+  const flags = kind === "case"
+    ? (data.parties || []).flatMap((p) => (p.risk_details || []).map((d) => ({ ...d, subject: p.subject })))
+    : (data.risk_details || data.flags || []);
+  const interactionRows = kind === "case"
+    ? (data.parties || []).flatMap((p) => p.records || [])
+    : (data.interactions || []);
+
+  return (
+    <div className="space-y-4 p-6" style={{ background: "#0e1628", color: "#e8eef8", fontFamily: "Inter, sans-serif" }}>
+      <div style={{ borderBottom: "1px solid #1a2845", paddingBottom: 12 }}>
+        <p style={{ fontSize: 10, letterSpacing: "0.2em", color: "#3b82f6", textTransform: "uppercase" }}>
+          CIB India — IPDR Intelligence Platform
+        </p>
+        <h1 style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{title}</h1>
+        <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+          Generated {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC · RESTRICTED
+        </p>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {[["Total Interactions", summary.total_interactions || 0], ["Risk Score", summary.risk_score || 0], ["Flags", summary.flag_count || 0]].map(([l, v]) => (
+          <div key={l} style={{ background: "#152038", border: "1px solid #1a2845", borderRadius: 10, padding: 12 }}>
+            <p style={{ fontSize: 10, color: "#5a7090", textTransform: "uppercase" }}>{l}</p>
+            <p style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>{v}</p>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: "#152038", border: "1px solid #1a2845", borderRadius: 10, padding: 12 }}>
+        <h2 style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#5a7090", marginBottom: 10 }}>Rule Flags</h2>
+        {flags.length ? flags.map((f, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 12, color: "#94a3b8" }}>
+            <span style={{ color: "#3b82f6", marginTop: 2 }}>▸</span>
+            <span>{f.subject ? `${f.subject}: ` : ""}{f.message} <strong style={{ color: "#e8eef8" }}>+{f.points ?? 0}</strong></span>
+          </div>
+        )) : <p style={{ fontSize: 12, color: "#5a7090" }}>No rule flags triggered.</p>}
+      </div>
+      <div style={{ background: "#152038", border: "1px solid #1a2845", borderRadius: 10, padding: 12 }}>
+        <h2 style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#5a7090", marginBottom: 10 }}>Key Interactions</h2>
+        <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ color: "#5a7090" }}>
+              {["A-Party", "B-Party", "Timestamp", "Duration (s)"].map((h) => (
+                <th key={h} style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid #1a2845" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {interactionRows.slice(0, 15).map((row, i) => (
+              <tr key={i} style={{ color: "#94a3b8" }}>
+                <td style={{ padding: "4px 8px" }}>{row.a_party || data.a_party || "—"}</td>
+                <td style={{ padding: "4px 8px" }}>{row.b_party_ip || row.b_party_number || "—"}</td>
+                <td style={{ padding: "4px 8px" }}>{row.timestamp || row.first_seen || "—"}</td>
+                <td style={{ padding: "4px 8px" }}>{Math.round(row.duration_sec || row.total_duration_sec || 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   DASHBOARD VIEW
+   ============================================================ */
+function DashboardView({ token, onOpenCasePicker }) {
+  const [summary, setSummary] = useState(null);
+  const [network, setNetwork] = useState({ nodes: [], edges: [] });
+  const [timeline, setTimeline] = useState([]);
+  const [topFlagged, setTopFlagged] = useState([]);
+  const [mlScoreMap, setMlScoreMap] = useState({});
+  const [heatmapGrid, setHeatmapGrid] = useState(null);
+  const [uploadResult, setUploadResult] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [focusedNode, setFocusedNode] = useState(null);
+  const [topFilter, setTopFilter] = useState("all");
+  const [showHeatmap, setShowHeatmap] = useState(false);
+
+  const riskLookup = useMemo(
+    () => Object.fromEntries(topFlagged.map((r) => [r.a_party, r.risk_level])),
+    [topFlagged]
+  );
+
+  async function load() {
+    setError("");
+    setLoading(true);
+    try {
+      const [sumData, netData, tlData, flagData, mlData] = await Promise.all([
+        apiFetch("/dashboard/summary", {}, token),
+        apiFetch("/dashboard/network?limit=500", {}, token),
+        apiFetch("/dashboard/timeline?granularity=day", {}, token),
+        apiFetch("/flags/top", {}, token),
+        apiFetch("/ml/anomaly", {}, token).catch(() => ({ results: [] })),
+      ]);
+      setSummary(sumData);
+      setNetwork(netData);
+      setTimeline(tlData);
+      setTopFlagged(flagData);
+      // Build ML score map
+      const scoreMap = {};
+      (mlData.results || []).forEach((r) => { scoreMap[r.a_party] = r.anomaly_score; });
+      setMlScoreMap(scoreMap);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Reload heatmap data when toggled
   useEffect(() => {
-    load();
-  }, [token]);
+    if (showHeatmap && !heatmapGrid) {
+      apiFetch("/dashboard/heatmap", {}, token)
+        .then((res) => { if (res.grid) setHeatmapGrid(res.grid); })
+        .catch(() => {});
+    }
+  }, [showHeatmap, token]);
+
+  useEffect(() => { load(); }, [token]);
 
   async function uploadByFile(file) {
     const form = new FormData();
@@ -579,134 +1321,221 @@ function DashboardView({ token, onOpenCasePicker }) {
     }
   }
 
-  const onUploadInput = (event) => {
-    const file = event.target.files?.[0];
-    if (file) uploadByFile(file);
-  };
+  // Find anomaly spikes for timeline markers
+  const anomalyDates = useMemo(() => {
+    if (!topFlagged.length || !timeline.length) return [];
+    // Mark the top 3 peak days as anomaly markers
+    const sorted = [...timeline].sort((a, b) => b.count - a.count);
+    const avg = timeline.reduce((s, t) => s + t.count, 0) / timeline.length;
+    return sorted.filter((t) => t.count > avg * 1.8).slice(0, 3).map((t) => t.period);
+  }, [topFlagged, timeline]);
+
+  const filteredTop = useMemo(() => {
+    return topFlagged.filter((row) => {
+      if (topFilter === "blacklist") return row.blacklist_matches?.length > 0;
+      if (topFilter === "ml") return (mlScoreMap[row.a_party] || 0) >= 60;
+      return true;
+    });
+  }, [topFlagged, topFilter, mlScoreMap]);
 
   return (
     <div className="space-y-6">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      {/* High-risk alert banner */}
+      {!loading && topFlagged.some((f) => f.risk_level === "High") && (
+        <div
+          className="rounded-2xl px-5 py-3 flex items-center gap-4"
+          style={{ background: "rgba(185,28,28,0.06)", border: "1px solid rgba(185,28,28,0.2)" }}
+        >
+          <AlertTriangle size={18} style={{ color: DANGER }} className="flex-shrink-0" />
+          <p className="text-sm font-medium" style={{ color: "#991b1b" }}>
+            {topFlagged.filter((f) => f.risk_level === "High").length} HIGH RISK entities detected in this dataset — immediate review recommended.
+          </p>
+        </div>
+      )}
 
+      {error && (
+        <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Stats row */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {loading ? (
-          <>
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-            <Skeleton className="h-28" />
-          </>
+          <>{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}</>
         ) : (
           <>
-            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#1e40af" />
-            <StatCard label="Unique A-parties" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#1e40af" />
-            <StatCard label="Unique B-parties" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#1e40af" />
-            <StatCard label="Flagged parties" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+            <StatCard label="Total Records" value={summary?.total_records ?? 0} icon={Database} accent={ACCENT} />
+            <StatCard label="Unique A-Parties" value={summary?.unique_a_parties ?? 0} icon={Users} accent={ACCENT} />
+            <StatCard label="Unique B-Parties" value={summary?.unique_b_parties ?? 0} icon={Network} accent={ACCENT} />
+            <StatCard label="Flagged Parties" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent={DANGER} />
           </>
         )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
+      {/* Network + Top Flagged */}
+      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
         <section className="card p-5 fade-in">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">A-party ↔ B-party Network</h2>
-              <p className="text-sm muted">Zoom with scroll, drag to pan, click top flagged entries to focus nodes.</p>
+              <h2 className="text-xl font-bold heading-tight" style={{ color: "var(--text-primary)" }}>Communication Network</h2>
+              <p className="text-xs muted mt-0.5">A-party ↔ B-party force graph · Scroll to zoom · Drag to pan</p>
             </div>
-            <label
-              className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Upload size={16} />
-              Upload file
-              <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
-            </label>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHeatmap((v) => !v)}
+                className="btn-secondary text-xs px-3 py-2"
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Activity size={14} />
+                {showHeatmap ? "Show Graph" : "Heatmap"}
+              </button>
+              <label
+                className="btn-primary text-xs px-3 py-2 cursor-pointer"
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Upload size={14} />
+                Upload
+                <input type="file" accept=".csv,.txt,.json" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadByFile(f); }} className="hidden" />
+              </label>
+            </div>
           </div>
           <UploadDropzone onFile={uploadByFile} />
           <div className="mt-4">
-            {loading ? <Skeleton className="aspect-[16/10] w-full" /> : <NetworkGraph nodes={network.nodes} edges={network.edges} focusedNode={focusedNode} riskLookup={riskLookup} />}
+            {loading ? (
+              <Skeleton className="aspect-[16/10] w-full" />
+            ) : showHeatmap ? (
+              <div className="rounded-2xl p-4" style={{ background: "#f8fafc", border: "1px solid var(--border-default)" }}>
+                <p className="label mb-4">Activity Heatmap — Hour × Day</p>
+                <ActivityHeatmap grid={heatmapGrid} />
+              </div>
+            ) : (
+              <NetworkGraph
+                nodes={network.nodes}
+                edges={network.edges}
+                focusedNode={focusedNode}
+                riskLookup={riskLookup}
+                mlScores={mlScoreMap}
+              />
+            )}
           </div>
         </section>
 
         <section className="card p-5 fade-in">
-          <h2 className="text-xl font-bold heading-tight text-slate-900">Parse Summary</h2>
-          {uploadResult ? (
-            <div className="mt-4 grid gap-2 text-sm text-slate-700">
-              <p><span className="font-medium">File:</span> {uploadResult.filename}</p>
-              <p><span className="font-medium">Total rows:</span> {uploadResult.total_rows}</p>
-              <p><span className="font-medium">Valid rows:</span> {uploadResult.valid_rows}</p>
-              <p><span className="font-medium">Errors:</span> {uploadResult.error_rows}</p>
-              <p><span className="font-medium">Date range:</span> {uploadResult.date_min || "-"} to {uploadResult.date_max || "-"}</p>
+          {/* Upload result */}
+          {uploadResult && (
+            <div className="mb-5 rounded-xl p-4" style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}>
+              <p className="label mb-2">Parse Result</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[["File", uploadResult.filename], ["Total rows", uploadResult.total_rows], ["Valid", uploadResult.valid_rows], ["Errors", uploadResult.error_rows]].map(([k, v]) => (
+                  <div key={k}>
+                    <span className="muted">{k}: </span>
+                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>{v}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : (
-            <p className="mt-3 text-sm muted">Upload an IPDR file to view parser stats.</p>
           )}
 
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged A-parties</h3>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[["all", "All"], ["auto", "Auto"], ["manual", "Manual"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Top Flagged A-Parties</h3>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {[["all", "All"], ["blacklist", "Blacklist"], ["ml", "ML Anomaly"]].map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setTopFilter(key)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
+                  className="text-xs px-3 py-1 rounded-full transition"
+                  style={{
+                    background: topFilter === key ? "var(--accent-soft)" : "#ffffff",
+                    color: topFilter === key ? ACCENT : "var(--text-secondary)",
+                    border: `1px solid ${topFilter === key ? "rgba(30,64,175,0.25)" : "var(--border-default)"}`,
+                    boxShadow: topFilter === key ? "none" : "0 1px 2px rgba(15,23,42,0.04)",
+                    fontWeight: topFilter === key ? 600 : 400,
+                  }}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <div className="mt-3 space-y-3">
+
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
               {loading ? (
-                <>
-                  <Skeleton className="h-20" />
-                  <Skeleton className="h-20" />
-                  <Skeleton className="h-20" />
-                </>
+                <>{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)}</>
               ) : (
-                filteredTopFlagged.slice(0, 6).map((row) => (
-                  <button
-                    key={row.a_party}
-                    onClick={() => setFocusedNode(row.a_party)}
-                    className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-800">{row.a_party}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${riskTone(row.risk_level)}`}>{row.risk_level}</span>
-                        {row.blacklist_matches?.length ? (
-                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-medium ${blacklistTone()}`}>Blacklist Match</span>
-                        ) : null}
-                        <span onClick={(e) => e.stopPropagation()}>
-                          <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
-                        </span>
+                filteredTop.slice(0, 8).map((row) => {
+                  const mlScore = mlScoreMap[row.a_party] ?? null;
+                  return (
+                    <button
+                      key={row.a_party}
+                      onClick={() => setFocusedNode(row.a_party)}
+                      className="w-full rounded-xl p-3 text-left transition card-interactive"
+                      style={{
+                        background: "var(--bg-raised)",
+                        border: `1px solid ${focusedNode === row.a_party ? "rgba(30,64,175,0.3)" : "var(--border-subtle)"}`,
+                        borderLeft: `3px solid ${riskBorderColor(row.risk_level)}`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{row.a_party}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className={riskBadge(row.risk_level)}>{row.risk_level}</span>
+                          {row.blacklist_matches?.length > 0 && <span className="badge badge-bl">BL</span>}
+                          {mlScore != null && mlScore >= 60 && (
+                            <span className="badge badge-ml" title={`ML Score: ${mlScore}`}>ML {mlScore}</span>
+                          )}
+                          <WhyFlaggedPopover
+                            details={row.risk_details || row.flags || []}
+                            risk={{ score: row.risk_score, level: row.risk_level }}
+                            mlData={mlScore != null ? { anomaly_score: mlScore, cluster_label: null } : null}
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <p className="mt-1 text-xs muted">Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties</p>
-                  </button>
-                ))
+                      <p className="mt-1.5 text-xs muted">
+                        Score {row.risk_score} · {row.interaction_count} interactions · {row.distinct_b_parties} B-parties
+                      </p>
+                      {mlScore != null && (
+                        <div className="mt-1.5 h-1 rounded-full" style={{ background: "var(--bg-panel)" }}>
+                          <div className="h-full rounded-full" style={{ width: `${mlScore}%`, background: `linear-gradient(90deg, ${ACCENT}, ${mlScoreColor(mlScore)})` }} />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>
         </section>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+      {/* Timeline + Risk summary */}
+      <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
         <section className="card p-5 fade-in">
-          <div className="mb-4">
-            <h2 className="text-xl font-bold heading-tight text-slate-900">Communication Volume Over Time</h2>
-            <p className="text-sm muted">Detect traffic spikes and unusual windows quickly.</p>
-          </div>
-          <div className="h-80">
-            {loading ? (
-              <Skeleton className="h-full w-full" />
-            ) : (
+          <h2 className="text-xl font-bold heading-tight mb-1" style={{ color: "var(--text-primary)" }}>Communication Volume</h2>
+          <p className="text-xs muted mb-4">Traffic over time · Red markers = detected anomaly spikes</p>
+          <div style={{ height: 280 }}>
+            {loading ? <Skeleton className="h-full w-full" /> : (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={timeline}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 12 }} />
-                  <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a" }} />
-                  <Area type="monotone" dataKey="count" stroke={ACCENT} fill={ACCENT} fillOpacity={0.16} />
+                  <defs>
+                    <linearGradient id="tlGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={ACCENT} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(99,130,200,0.12)" />
+                  <XAxis dataKey="period" tick={{ fill: "var(--text-muted)", fontSize: 11 }} />
+                  <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{ background: "#ffffff", border: "1px solid var(--border-default)", boxShadow: "0 4px 20px rgba(15,23,42,0.08)", color: "var(--text-primary)", borderRadius: 10, fontSize: 12 }}
+                    itemStyle={{ color: "var(--text-accent)" }}
+                    labelStyle={{ color: "var(--text-secondary)" }}
+                  />
+                  {anomalyDates.map((d) => (
+                    <ReferenceLine key={d} x={d} stroke={DANGER} strokeDasharray="4 2" strokeWidth={1.5} label={{ value: "!", fill: DANGER, fontSize: 10, position: "top" }} />
+                  ))}
+                  <Area type="monotone" dataKey="count" stroke={ACCENT} fill="url(#tlGrad)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: ACCENT }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -714,30 +1543,26 @@ function DashboardView({ token, onOpenCasePicker }) {
         </section>
 
         <section className="card p-5 fade-in">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Risk Summary</h2>
-              <p className="text-sm muted">Low / Medium / High flagged parties.</p>
+              <h2 className="text-xl font-bold heading-tight" style={{ color: "var(--text-primary)" }}>Risk Distribution</h2>
+              <p className="text-xs muted">Low / Medium / High flagged parties</p>
             </div>
             <button
-              onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv"))}
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
+              onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv")).catch(() => {})}
+              className="btn-secondary text-xs px-3 py-1.5"
             >
               Export CSV
             </button>
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="grid gap-3">
             {loading ? (
-              <>
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-                <Skeleton className="h-20" />
-              </>
+              <>{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)}</>
             ) : (
               <>
-                <StatCard label="Low" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
-                <StatCard label="Medium" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
-                <StatCard label="High" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#b91c1c" />
+                <StatCard label="Low Risk" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#475569" />
+                <StatCard label="Medium Risk" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#f59e0b" />
+                <StatCard label="High Risk" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent={DANGER} />
               </>
             )}
           </div>
@@ -747,21 +1572,15 @@ function DashboardView({ token, onOpenCasePicker }) {
   );
 }
 
+/* ============================================================
+   SEARCH / INTERACTIONS VIEW
+   ============================================================ */
 function SearchView({ token, onOpenCasePicker }) {
-  const [form, setForm] = useState({
-    query: "",
-    start_date: "",
-    end_date: "",
-    min_duration: "",
-    max_duration: "",
-    session_type: "",
-    relevant_only: true,
-    flagged_only: false,
-  });
+  const [form, setForm] = useState({ query: "", start_date: "", end_date: "", min_duration: "", max_duration: "", session_type: "", relevant_only: true, flagged_only: false });
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
+  const PAGE_SIZE = 10;
   const [sortBy, setSortBy] = useState("interaction_count");
   const [sortDir, setSortDir] = useState("desc");
   const [loading, setLoading] = useState(false);
@@ -769,22 +1588,30 @@ function SearchView({ token, onOpenCasePicker }) {
   const [selected, setSelected] = useState(null);
   const [reportData, setReportData] = useState(null);
   const reportRef = useRef(null);
-  const [selectedUploadId, setSelectedUploadId] = useState("");
+  const [mlScores, setMlScores] = useState({});
+
+  // Load ML scores once
+  useEffect(() => {
+    apiFetch("/ml/anomaly", {}, token)
+      .then((res) => {
+        const m = {};
+        (res.results || []).forEach((r) => { m[r.a_party] = r; });
+        setMlScores(m);
+      })
+      .catch(() => {});
+  }, [token]);
 
   async function runSearch(nextPage = 1) {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams();
-      Object.entries(form).forEach(([key, value]) => {
-        if (value !== "" && value !== false) params.set(key, value);
-      });
-      if (selectedUploadId) params.set("upload_id", selectedUploadId);
+      Object.entries(form).forEach(([k, v]) => { if (v !== "" && v !== false) params.set(k, v); });
       params.set("page", String(nextPage));
-      params.set("page_size", String(pageSize));
+      params.set("page_size", String(PAGE_SIZE));
       params.set("sort_by", sortBy);
       params.set("sort_dir", sortDir);
-      const result = await apiFetch(`/interactions?${params.toString()}`, {}, token);
+      const result = await apiFetch(`/interactions?${params}`, {}, token);
       setRows(result.items);
       setTotal(result.total);
       setPage(result.page);
@@ -795,187 +1622,203 @@ function SearchView({ token, onOpenCasePicker }) {
     }
   }
 
-  useEffect(() => {
-    runSearch(1);
-  }, [token, sortBy, sortDir]);
+  useEffect(() => { runSearch(1); }, [token, sortBy, sortDir]);
 
-  function update(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
+  function update(field, val) { setForm((f) => ({ ...f, [field]: val })); }
+
+  function toggleSort(col) {
+    if (sortBy === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setSortBy(col); setSortDir("desc"); }
   }
 
-  function toggleSort(column) {
-    if (sortBy === column) {
-      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(column);
-      setSortDir("desc");
-    }
-  }
-
-  async function exportCsv() {
-    const params = new URLSearchParams();
-    Object.entries(form).forEach(([key, value]) => {
-      if (value !== "" && value !== false) params.set(key, value);
-    });
-    const blob = await apiFetch(`/export/csv?${params.toString()}`, {}, token);
-    downloadBlob(blob, "ipdr_filtered.csv");
+  async function openInvestigation(aParty) {
+    try { const r = await apiFetch(`/investigation/${encodeURIComponent(aParty)}`, {}, token); setSelected(r); }
+    catch (err) { setError(err.message); }
   }
 
   async function exportPdf(aParty) {
     try {
-      const detail = selected && selected.a_party === aParty ? selected : await apiFetch(`/investigation/${encodeURIComponent(aParty)}`, {}, token);
+      const detail = selected?.a_party === aParty ? selected : await apiFetch(`/investigation/${encodeURIComponent(aParty)}`, {}, token);
       setReportData(detail);
-      await new Promise((resolve) => setTimeout(resolve, 120));
+      await new Promise((res) => setTimeout(res, 150));
       await exportReportPdf(reportRef.current, `IPDR_Report_${String(aParty).replace(/[^A-Za-z0-9_-]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setReportData(null);
-    }
+    } catch (err) { setError(err.message); }
+    finally { setReportData(null); }
   }
 
-  async function openInvestigation(aParty) {
-    try {
-      const result = await apiFetch(`/investigation/${encodeURIComponent(aParty)}`, {}, token);
-      setSelected(result);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
+  const columns = [["a_party", "A-Party"], ["b_party_ip", "B-Party"], ["interaction_count", "Count"], ["total_duration_sec", "Duration (s)"], ["first_seen", "First Seen"], ["last_seen", "Last Seen"]];
 
   return (
     <div className="space-y-6 fade-in">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      {error && <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171", border: "1px solid rgba(239,68,68,0.3)" }}>{error}</div>}
+
+      {/* Filter bar */}
       <section className="card p-5">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number or IP" />
-          <input value={form.start_date} onChange={(e) => update("start_date", e.target.value)} type="datetime-local" />
-          <input value={form.end_date} onChange={(e) => update("end_date", e.target.value)} type="datetime-local" />
-          <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" />
-          <input value={form.min_duration} onChange={(e) => update("min_duration", e.target.value)} placeholder="Min duration" type="number" />
-          <input value={form.max_duration} onChange={(e) => update("max_duration", e.target.value)} placeholder="Max duration" type="number" />
-          <input value={selectedUploadId} onChange={(e) => setSelectedUploadId(e.target.value)} placeholder="Upload ID" type="number" />
-          <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />Flagged only</label>
-          <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />Relevant only</label>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input value={form.query} onChange={(e) => update("query", e.target.value)} placeholder="Search number or IP…" id="search-query" />
+          <input value={form.start_date} onChange={(e) => update("start_date", e.target.value)} type="datetime-local" id="search-start" />
+          <input value={form.end_date} onChange={(e) => update("end_date", e.target.value)} type="datetime-local" id="search-end" />
+          <input value={form.session_type} onChange={(e) => update("session_type", e.target.value)} placeholder="Session type" id="search-session" />
+          <input value={form.min_duration} onChange={(e) => update("min_duration", e.target.value)} placeholder="Min duration" type="number" id="search-min-dur" />
+          <input value={form.max_duration} onChange={(e) => update("max_duration", e.target.value)} placeholder="Max duration" type="number" id="search-max-dur" />
+          <div className="flex items-center gap-4 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+              <input type="checkbox" checked={form.flagged_only} onChange={(e) => update("flagged_only", e.target.checked)} />
+              Flagged only
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer" style={{ color: "var(--text-secondary)" }}>
+              <input type="checkbox" checked={form.relevant_only} onChange={(e) => update("relevant_only", e.target.checked)} />
+              Relevant only
+            </label>
+          </div>
           <div className="flex gap-2">
-            <button onClick={() => runSearch(1)} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Search</button>
-            <button onClick={exportCsv} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">CSV</button>
+            <button onClick={() => runSearch(1)} className="btn-primary flex-1" id="search-submit">Search</button>
+            <button
+              onClick={() => apiFetch(`/export/csv?${new URLSearchParams(Object.fromEntries(Object.entries(form).filter(([, v]) => v !== "" && v !== false)))}`, {}, token).then((b) => downloadBlob(b, "ipdr_filtered.csv")).catch(() => {})}
+              className="btn-secondary px-3"
+            >
+              CSV
+            </button>
           </div>
         </div>
       </section>
 
+      {/* Results table */}
       <section className="card p-5">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold heading-tight text-slate-900">Interactions</h2>
-            <p className="text-sm muted">{total} rows matched</p>
+            <h2 className="text-xl font-bold heading-tight" style={{ color: "var(--text-primary)" }}>Interactions</h2>
+            <p className="text-xs muted">{total} matched · Page {page}</p>
           </div>
-          <div className="text-sm muted">{loading ? "Loading..." : `Page ${page}`}</div>
+          {loading && <span className="text-xs muted">Loading…</span>}
         </div>
+
         {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-10" />
-            <Skeleton className="h-10" />
-            <Skeleton className="h-10" />
-          </div>
+          <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-slate-600">
+            <table className="min-w-full">
+              <thead>
                 <tr>
-                  {[["a_party", "A-party"], ["b_party_ip", "B IP"], ["interaction_count", "Count"], ["total_duration_sec", "Duration"], ["first_seen", "First seen"], ["last_seen", "Last seen"]].map(([key, label]) => (
-                    <th key={key} className="cursor-pointer border-b border-slate-200 px-3 py-2" onClick={() => toggleSort(key)}>{label}</th>
+                  {columns.map(([key, label]) => (
+                    <th key={key} onClick={() => toggleSort(key)} style={{ cursor: "pointer" }}>
+                      {label} {sortBy === key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </th>
                   ))}
-                  <th className="border-b border-slate-200 px-3 py-2">Risk</th>
-                  <th className="border-b border-slate-200 px-3 py-2">Actions</th>
+                  <th>Risk</th>
+                  <th>ML Score</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={`${row.a_party}-${row.b_party_ip}-${row.b_party_number}`} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-3 py-3">{row.a_party}</td>
-                    <td className="px-3 py-3">{formatValue(row.b_party_ip || row.b_party_number)}</td>
-                    <td className="px-3 py-3">{row.interaction_count}</td>
-                    <td className="px-3 py-3">{Math.round(row.total_duration_sec)}</td>
-                    <td className="px-3 py-3">{row.first_seen}</td>
-                    <td className="px-3 py-3">{row.last_seen}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-lg border px-2 py-1 text-xs ${riskTone(row.risk.level)}`}>{row.risk.level}</span>
-                        {row.blacklist_matches?.length ? <span className={`rounded-lg border px-2 py-1 text-xs ${blacklistTone()}`}>Blacklist Match</span> : null}
-                        <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={row.risk} />
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-2">
-                        <button onClick={() => openInvestigation(row.a_party)} className="text-sm font-medium" style={{ color: ACCENT }}>Investigate</button>
-                        <button onClick={() => onOpenCasePicker?.(row.a_party)} className="text-sm font-medium text-indigo-700">Add A</button>
-                        {row.b_party_ip || row.b_party_number ? <button onClick={() => onOpenCasePicker?.(row.b_party_ip || row.b_party_number)} className="text-sm font-medium text-indigo-700">Add B</button> : null}
-                        <button onClick={() => exportPdf(row.a_party)} className="text-sm font-medium text-amber-700">PDF</button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  const ml = mlScores[row.a_party];
+                  return (
+                    <tr key={`${row.a_party}-${row.b_party_ip}-${row.b_party_number}`}>
+                      <td className="mono">{row.a_party}</td>
+                      <td className="mono">{formatVal(row.b_party_ip || row.b_party_number)}</td>
+                      <td>{row.interaction_count}</td>
+                      <td>{Math.round(row.total_duration_sec)}</td>
+                      <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{row.first_seen}</td>
+                      <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{row.last_seen}</td>
+                      <td>
+                        <div className="flex items-center gap-1.5">
+                          <span className={riskBadge(row.risk?.level)}>{row.risk?.level || "Low"}</span>
+                          {row.blacklist_matches?.length > 0 && <span className="badge badge-bl">BL</span>}
+                          <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={row.risk} />
+                        </div>
+                      </td>
+                      <td>
+                        {ml ? (
+                          <span className="badge badge-ml">{ml.anomaly_score}</span>
+                        ) : <span style={{ color: "var(--text-muted)", fontSize: 11 }}>—</span>}
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button onClick={() => openInvestigation(row.a_party)} className="text-xs font-medium" style={{ color: ACCENT }}>Investigate</button>
+                          <button onClick={() => onOpenCasePicker?.(row.a_party)} className="text-xs font-medium" style={{ color: "#818cf8" }}>+Case</button>
+                          <button onClick={() => exportPdf(row.a_party)} className="text-xs font-medium" style={{ color: "#fbbf24" }}>PDF</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+
         <div className="mt-4 flex items-center justify-between">
-          <button disabled={page <= 1} onClick={() => runSearch(page - 1)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Prev</button>
-          <button disabled={page * pageSize >= total} onClick={() => runSearch(page + 1)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50">Next</button>
+          <button disabled={page <= 1} onClick={() => runSearch(page - 1)} className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40">← Prev</button>
+          <span className="text-xs muted">Page {page} of {Math.ceil(total / PAGE_SIZE) || 1}</span>
+          <button disabled={page * PAGE_SIZE >= total} onClick={() => runSearch(page + 1)} className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40">Next →</button>
         </div>
       </section>
 
-      {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-2xl fade-in">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold heading-tight text-slate-900">Investigation summary: {selected.a_party}</h3>
+      {/* Investigation modal */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)" }}>
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl p-6 shadow-2xl fade-in" style={{ background: "#ffffff", border: "1px solid var(--border-default)", boxShadow: "0 20px 60px rgba(15,23,42,0.15)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="label">Investigation Summary</p>
+                <h3 className="heading-tight text-xl mt-1 mono" style={{ color: "var(--text-primary)" }}>{selected.a_party}</h3>
+              </div>
               <div className="flex items-center gap-3">
-                <button onClick={() => onOpenCasePicker?.(selected.a_party)} className="text-sm font-medium text-indigo-700">Add to Case</button>
-                <button onClick={() => exportPdf(selected.a_party)} className="text-sm font-medium text-amber-700">Export Report (PDF)</button>
-                <button onClick={() => setSelected(null)} className="text-sm muted">Close</button>
+                <button onClick={() => onOpenCasePicker?.(selected.a_party)} className="btn-secondary text-xs px-3 py-1.5">Add to Case</button>
+                <button onClick={() => exportPdf(selected.a_party)} className="text-xs font-medium" style={{ color: "#fbbf24" }}>Export PDF</button>
+                <button onClick={() => setSelected(null)} className="btn-secondary text-xs px-3 py-1.5"><X size={14} /></button>
               </div>
             </div>
-            <p className="mt-2 text-sm muted">Risk: <span className="font-semibold text-slate-800">{selected.risk.level}</span> ({selected.risk.score}) {selected.blacklist_matches?.length ? <span className={`ml-2 rounded-lg border px-2 py-0.5 text-xs ${blacklistTone()}`}>Blacklist Match</span> : null}</p>
-            <div className="mt-2">
-              <WhyFlaggedPopover details={selected.risk_details || selected.flags || []} risk={selected.risk} />
+
+            <div className="flex items-center gap-2 mb-4">
+              <span className={riskBadge(selected.risk?.level)}>{selected.risk?.level}</span>
+              <span className="text-xs muted">Score: {selected.risk?.score}</span>
+              {selected.blacklist_matches?.length > 0 && <span className="badge badge-bl">Blacklist Match</span>}
+              <WhyFlaggedPopover details={selected.risk_details || []} risk={selected.risk} />
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {selected.flags.map((flag) => (
-                <div key={flag.type} className={`rounded-xl border border-l-4 bg-white p-4 ${riskBorder(flag.severity === "high" ? "High" : flag.severity === "medium" ? "Medium" : "Low")}`}>
-                  <p className="font-semibold text-slate-900">{flag.type}</p>
-                  <p className="text-sm muted">{flag.message}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {selected.blacklist_matches?.map((match) => (
-                <span key={`${match.value}-${match.label}`} className={`rounded-lg border px-2 py-1 text-xs ${blacklistTone()}`}>{match.label}</span>
-              ))}
-            </div>
-            <div className="mt-6 overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="text-slate-600">
+
+            {/* Flags */}
+            {selected.flags?.length > 0 && (
+              <div className="grid gap-3 md:grid-cols-2 mb-5">
+                {selected.flags.map((flag, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl p-3"
+                    style={{
+                      background: "var(--bg-raised)",
+                      border: `1px solid`,
+                      borderColor: flag.severity === "high" ? "rgba(239,68,68,0.3)" : flag.severity === "medium" ? "rgba(245,158,11,0.3)" : "var(--border-subtle)",
+                      borderLeft: `3px solid ${flag.severity === "high" ? DANGER : flag.severity === "medium" ? "#f59e0b" : "#475569"}`,
+                    }}
+                  >
+                    <p className="text-xs font-semibold mb-1" style={{ color: "var(--text-primary)" }}>{flag.type?.replace(/_/g, " ").toUpperCase()}</p>
+                    <p className="text-xs muted">{flag.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Interactions table */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
                   <tr>
-                    <th className="border-b border-slate-200 px-3 py-2">B-party</th>
-                    <th className="border-b border-slate-200 px-3 py-2">Count</th>
-                    <th className="border-b border-slate-200 px-3 py-2">Duration</th>
-                    <th className="border-b border-slate-200 px-3 py-2">First Seen</th>
-                    <th className="border-b border-slate-200 px-3 py-2">Last Seen</th>
-                    <th className="border-b border-slate-200 px-3 py-2">Actions</th>
+                    <th>B-Party</th><th>Count</th><th>Duration (s)</th><th>First Seen</th><th>Last Seen</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {selected.interactions.map((item) => (
-                    <tr key={`${item.b_party_ip}-${item.b_party_number}`} className="border-b border-slate-100">
-                      <td className="px-3 py-3">{item.b_party_ip || item.b_party_number}</td>
-                      <td className="px-3 py-3">{item.interaction_count}</td>
-                      <td className="px-3 py-3">{Math.round(item.total_duration_sec)}</td>
-                      <td className="px-3 py-3">{item.first_seen}</td>
-                      <td className="px-3 py-3">{item.last_seen}</td>
-                      <td className="px-3 py-3">
-                        {(item.b_party_ip || item.b_party_number) ? <button onClick={() => onOpenCasePicker?.(item.b_party_ip || item.b_party_number)} className="text-sm font-medium text-indigo-700">Add to Case</button> : null}
+                  {selected.interactions?.map((item, i) => (
+                    <tr key={i}>
+                      <td className="mono">{item.b_party_ip || item.b_party_number}</td>
+                      <td>{item.interaction_count}</td>
+                      <td>{Math.round(item.total_duration_sec)}</td>
+                      <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{item.first_seen}</td>
+                      <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{item.last_seen}</td>
+                      <td>
+                        {(item.b_party_ip || item.b_party_number) && (
+                          <button onClick={() => onOpenCasePicker?.(item.b_party_ip || item.b_party_number)} className="text-xs" style={{ color: "#818cf8" }}>+Case</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -984,89 +1827,18 @@ function SearchView({ token, onOpenCasePicker }) {
             </div>
           </div>
         </div>
-      ) : null}
-      {reportData ? (
-        <div className="fixed left-[-9999px] top-0 w-[900px] bg-white p-6 text-slate-900" ref={reportRef}>
-          <ReportSheet data={reportData} kind="subject" />
-        </div>
-      ) : null}
+      )}
+      {reportData && <div className="fixed left-[-9999px] top-0 w-[900px]" ref={reportRef}><ReportSheet data={reportData} kind="subject" /></div>}
     </div>
   );
 }
 
-function ReportSheet({ data, kind }) {
-  const title = kind === "case" ? data.name : `Investigation Summary: ${data.a_party || data.subject}`;
-  const summary = kind === "case" ? data.summary : {
-    total_interactions: data.interactions?.length || 0,
-    risk_score: data.risk?.score || 0,
-    flag_count: data.flags?.length || 0,
-  };
-  const flags = kind === "case"
-    ? (data.parties || []).flatMap((party) => (party.risk_details || []).map((detail) => ({ ...detail, subject: party.subject })))
-    : (data.risk_details || data.flags || []);
-  const network = kind === "case" ? data.network : { nodes: [], edges: [] };
-  const interactionRows = kind === "case" ? (data.parties || []).flatMap((party) => party.records || []) : (data.interactions || []);
-  return (
-    <div className="space-y-4 bg-white p-6 text-slate-900">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-800">IPDR Insight</p>
-        <h1 className="mt-2 text-2xl font-bold heading-tight">{title}</h1>
-        <p className="mt-1 text-xs text-slate-500">Generated {new Date().toISOString().slice(0, 19).replace("T", " ")} UTC</p>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Total interactions</p><p className="mt-2 text-2xl font-bold">{summary.total_interactions || 0}</p></div>
-        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Risk score</p><p className="mt-2 text-2xl font-bold">{summary.risk_score || 0}</p></div>
-        <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs uppercase text-slate-500">Flag count</p><p className="mt-2 text-2xl font-bold">{summary.flag_count || 0}</p></div>
-      </div>
-      <div className="rounded-xl border border-slate-200 p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Flags</h2>
-        <ul className="mt-3 space-y-2 text-sm">
-          {flags.length ? flags.map((flag, index) => (
-            <li key={`${flag.type || flag.message}-${index}`} className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
-              <span>{flag.subject ? `${flag.subject}: ` : ""}{flag.message} <span className="font-semibold">→ +{flag.points ?? 0}</span></span>
-            </li>
-          )) : <li className="text-slate-500">No triggered rules.</li>}
-        </ul>
-      </div>
-      <div className="rounded-xl border border-slate-200 p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Key interactions</h2>
-        <table className="mt-3 min-w-full text-left text-sm">
-          <thead>
-            <tr className="text-slate-500">
-              <th className="border-b border-slate-200 px-2 py-2">A-party</th>
-              <th className="border-b border-slate-200 px-2 py-2">B-party</th>
-              <th className="border-b border-slate-200 px-2 py-2">Timestamp</th>
-              <th className="border-b border-slate-200 px-2 py-2">Duration</th>
-            </tr>
-          </thead>
-          <tbody>
-            {interactionRows.slice(0, 12).map((row, index) => (
-              <tr key={index}>
-                <td className="border-b border-slate-100 px-2 py-2">{row.a_party || data.a_party || "-"}</td>
-                <td className="border-b border-slate-100 px-2 py-2">{row.b_party_ip || row.b_party_number || row.subject || "-"}</td>
-                <td className="border-b border-slate-100 px-2 py-2">{row.timestamp || row.first_seen || row.created_at || "-"}</td>
-                <td className="border-b border-slate-100 px-2 py-2">{Math.round(row.duration_sec || row.total_duration_sec || 0)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {kind === "case" ? (
-        <div className="rounded-xl border border-slate-200 p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Case network</h2>
-          <div className="mt-3 bg-white">
-            <NetworkGraph nodes={network.nodes || []} edges={network.edges || []} riskLookup={{}} />
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
+/* ============================================================
+   CASE PICKER MODAL
+   ============================================================ */
 function CasePickerModal({ token, subject, onClose, onAssigned }) {
   const [cases, setCases] = useState([]);
-  const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [selectedId, setSelectedId] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("Open");
@@ -1074,66 +1846,58 @@ function CasePickerModal({ token, subject, onClose, onAssigned }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch("/cases", {}, token)
-      .then(setCases)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    apiFetch("/cases", {}, token).then(setCases).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [token]);
 
-  async function assignToCase(caseId) {
-    const result = await apiFetch(`/cases/${caseId}/parties`, {
-      method: "POST",
-      body: JSON.stringify({ subject, subject_type: subjectType(subject) }),
-    }, token);
-    onAssigned?.(result);
+  async function assignTo(caseId) {
+    const res = await apiFetch(`/cases/${caseId}/parties`, { method: "POST", body: JSON.stringify({ subject, subject_type: subjectType(subject) }) }, token);
+    onAssigned?.(res);
     onClose();
   }
 
   async function createAndAssign() {
-    const created = await apiFetch("/cases", {
-      method: "POST",
-      body: JSON.stringify({ name, description, status }),
-    }, token);
-    await assignToCase(created.id);
+    try {
+      const c = await apiFetch("/cases", { method: "POST", body: JSON.stringify({ name, description, status }) }, token);
+      await assignTo(c.id);
+    } catch (err) { setError(err.message); }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-6 shadow-2xl fade-in">
-        <div className="flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(15,23,42,0.4)", backdropFilter: "blur(6px)" }}>
+      <div className="w-full max-w-2xl rounded-2xl p-6 shadow-2xl fade-in" style={{ background: "#ffffff", border: "1px solid var(--border-default)", boxShadow: "0 20px 60px rgba(15,23,42,0.15)" }}>
+        <div className="flex items-start justify-between mb-5">
           <div>
-            <h3 className="text-xl font-bold heading-tight text-slate-900">Add to Case</h3>
-            <p className="text-sm muted">Assign {subjectLabel(subject)} to an existing case or create a new one.</p>
+            <h3 className="heading-tight text-xl" style={{ color: "var(--text-primary)" }}>Add to Case</h3>
+            <p className="text-xs muted mt-1">Assign <span className="mono" style={{ color: ACCENT }}>{subjectLabel(subject)}</span> to a case</p>
           </div>
-          <button onClick={onClose} className="text-sm muted">Close</button>
+          <button onClick={onClose} className="btn-secondary p-1.5"><X size={14} /></button>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-slate-800">Existing cases</p>
-            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {loading ? <Skeleton className="h-20" /> : cases.length ? cases.map((item) => (
-                <button key={item.id} onClick={() => setSelectedCaseId(String(item.id))} className={`w-full rounded-xl border p-3 text-left ${selectedCaseId === String(item.id) ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
-                  <div className="flex items-center justify-between"><span className="font-semibold text-slate-800">{item.name}</span><span className="text-xs muted">{item.status}</span></div>
-                  <p className="mt-1 text-xs muted">{item.party_count} linked parties</p>
+        {error && <div className="rounded-xl p-3 text-sm mb-4" style={{ background: "var(--danger-soft)", color: "#f87171" }}>{error}</div>}
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Existing Cases</p>
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+              {loading ? <Skeleton className="h-16" /> : cases.length ? cases.map((c) => (
+                <button key={c.id} onClick={() => setSelectedId(String(c.id))} className="w-full rounded-xl p-3 text-left transition" style={{ background: selectedId === String(c.id) ? "var(--accent-soft)" : "var(--bg-raised)", border: `1px solid ${selectedId === String(c.id) ? "rgba(59,130,246,0.35)" : "var(--border-subtle)"}` }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{c.name}</span>
+                    <span className="badge badge-ok text-xs">{c.status}</span>
+                  </div>
+                  <p className="text-xs muted mt-1">{c.party_count} linked</p>
                 </button>
               )) : <p className="text-sm muted">No cases yet.</p>}
             </div>
-            <button disabled={!selectedCaseId} onClick={() => assignToCase(selectedCaseId)} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
-              Assign to selected case
-            </button>
+            <button disabled={!selectedId} onClick={() => assignTo(selectedId)} className="btn-primary w-full mt-3 text-sm py-2">Assign to Selected</button>
           </div>
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-slate-800">Create new case</p>
+            <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Create New Case</p>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Case name" className="w-full" />
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" className="w-full min-h-28" />
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" className="w-full" style={{ minHeight: 80, resize: "vertical" }} />
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full">
-              <option>Open</option>
-              <option>Closed</option>
+              <option value="Open">Open</option>
+              <option value="Closed">Closed</option>
             </select>
-            <button disabled={!name.trim()} onClick={createAndAssign} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
-              Create case and add subject
-            </button>
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            <button disabled={!name.trim()} onClick={createAndAssign} className="btn-primary w-full text-sm py-2">Create & Assign</button>
           </div>
         </div>
       </div>
@@ -1141,549 +1905,513 @@ function CasePickerModal({ token, subject, onClose, onAssigned }) {
   );
 }
 
+/* ============================================================
+   CASES VIEW
+   ============================================================ */
 function CasesView({ token, onOpenCasePicker }) {
   const [cases, setCases] = useState([]);
   const [selectedCase, setSelectedCase] = useState(null);
-  const [caseName, setCaseName] = useState("");
-  const [caseDescription, setCaseDescription] = useState("");
-  const [caseStatus, setCaseStatus] = useState("Open");
-  const [note, setNote] = useState("");
-  const [subject, setSubject] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [caseLoading, setCaseLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
   const [reportData, setReportData] = useState(null);
   const reportRef = useRef(null);
 
-  async function loadCases() {
-    const result = await apiFetch("/cases", {}, token);
-    setCases(result);
-    setLoading(false);
-  }
-
-  async function loadCaseDetail(caseId) {
-    setLoading(true);
-    try {
-      const result = await apiFetch(`/cases/${caseId}`, {}, token);
-      setSelectedCase(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    loadCases().catch((err) => setError(err.message));
+    apiFetch("/cases", {}, token).then(setCases).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [token]);
 
-  async function createCase() {
-    const created = await apiFetch("/cases", { method: "POST", body: JSON.stringify({ name: caseName, description: caseDescription, status: caseStatus }) }, token);
-    setCaseName("");
-    setCaseDescription("");
-    setCaseStatus("Open");
-    await loadCases();
-    await loadCaseDetail(created.id);
-  }
-
-  async function addSubject() {
-    if (!selectedCase || !subject.trim()) return;
-    const result = await apiFetch(`/cases/${selectedCase.id}/parties`, { method: "POST", body: JSON.stringify({ subject, subject_type: subjectType(subject) }) }, token);
-    setSelectedCase(result);
-    setSubject("");
-    await loadCases();
+  async function openCase(caseId) {
+    setCaseLoading(true);
+    try { const r = await apiFetch(`/cases/${caseId}`, {}, token); setSelectedCase(r); }
+    catch (e) { setError(e.message); }
+    finally { setCaseLoading(false); }
   }
 
   async function addNote() {
-    if (!selectedCase || !note.trim()) return;
-    const result = await apiFetch(`/cases/${selectedCase.id}/notes`, { method: "POST", body: JSON.stringify({ note }) }, token);
-    setSelectedCase(result);
-    setNote("");
-    await loadCases();
+    if (!note.trim() || !selectedCase) return;
+    try {
+      const r = await apiFetch(`/cases/${selectedCase.id}/notes`, { method: "POST", body: JSON.stringify({ note }) }, token);
+      setSelectedCase(r);
+      setNote("");
+    } catch (e) { setError(e.message); }
   }
 
   async function exportCasePdf() {
+    if (!selectedCase) return;
     setReportData(selectedCase);
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    await exportReportPdf(reportRef.current, `IPDR_Report_${String(selectedCase?.name || "case").replace(/[^A-Za-z0-9_-]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    await new Promise((r) => setTimeout(r, 150));
+    await exportReportPdf(reportRef.current, `IPDR_Case_${String(selectedCase.name).replace(/[^A-Za-z0-9_-]+/g, "_")}.pdf`);
     setReportData(null);
   }
 
+  const statusColor = (s) => s === "Closed" ? "#475569" : ACCENT;
+
   return (
     <div className="space-y-6 fade-in">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
-      <section className="card p-5">
-        <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_0.7fr_auto]">
-          <input value={caseName} onChange={(e) => setCaseName(e.target.value)} placeholder="Case name" />
-          <input value={caseDescription} onChange={(e) => setCaseDescription(e.target.value)} placeholder="Description" />
-          <select value={caseStatus} onChange={(e) => setCaseStatus(e.target.value)}>
-            <option>Open</option>
-            <option>Closed</option>
-          </select>
-          <button onClick={createCase} disabled={!caseName.trim()} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
-            <FolderPlus size={16} className="mr-2 inline" />Create Case
-          </button>
-        </div>
-      </section>
+      {error && <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171" }}>{error}</div>}
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
+        {/* Cases list */}
+        <section className="card p-5">
+          <h2 className="text-lg font-bold heading-tight mb-4" style={{ color: "var(--text-primary)" }}>Investigation Cases</h2>
+          {loading ? <Skeleton className="h-32" /> : cases.length ? (
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              {cases.map((c) => (
+                <button key={c.id} onClick={() => openCase(c.id)} className="w-full rounded-xl p-3 text-left transition card-interactive" style={{ background: selectedCase?.id === c.id ? "var(--accent-soft)" : "var(--bg-raised)", border: `1px solid ${selectedCase?.id === c.id ? "rgba(59,130,246,0.35)" : "var(--border-subtle)"}`, borderLeft: `3px solid ${statusColor(c.status)}` }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{c.name}</span>
+                    <span className="badge" style={{ background: `${statusColor(c.status)}22`, color: statusColor(c.status), borderColor: `${statusColor(c.status)}44` }}>{c.status}</span>
+                  </div>
+                  <p className="text-xs muted mt-1">{c.party_count} parties · {c.last_updated?.slice(0, 10)}</p>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl p-5 text-center text-sm muted" style={{ background: "var(--bg-raised)", border: "1px dashed var(--border-default)" }}>
+              No cases yet. Use "Add to Case" from Search or Dashboard.
+            </div>
+          )}
+        </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-1 space-y-3">
-          {loading ? <Skeleton className="h-40" /> : cases.map((item) => (
-            <button key={item.id} onClick={() => loadCaseDetail(item.id)} className={`w-full rounded-xl border p-4 text-left shadow-sm ${selectedCase?.id === item.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-slate-800">{item.name}</span>
-                <span className={`rounded-lg border px-2 py-0.5 text-xs ${item.status === "Closed" ? "border-slate-300 bg-slate-100 text-slate-700" : "border-blue-200 bg-blue-50 text-blue-700"}`}>{item.status}</span>
-              </div>
-              <p className="mt-2 text-xs muted">{item.party_count} linked parties</p>
-              <p className="mt-1 text-xs muted">Last updated: {item.last_updated}</p>
-            </button>
-          ))}
-        </div>
-        <div className="xl:col-span-2">
-          {selectedCase ? (
-            <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+        {/* Case detail */}
+        <section className="card p-5">
+          {caseLoading ? <Skeleton className="h-72" /> : selectedCase ? (
+            <div className="space-y-5">
+              <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="text-xl font-bold heading-tight text-slate-900">{selectedCase.name}</h2>
-                  <p className="mt-1 text-sm muted">{selectedCase.description || "No description"}</p>
-                  <p className="mt-2 text-xs muted">Status: {selectedCase.status} · Created {selectedCase.created_at}</p>
+                  <p className="label">Case Detail</p>
+                  <h2 className="heading-tight text-xl mt-1" style={{ color: "var(--text-primary)" }}>{selectedCase.name}</h2>
+                  {selectedCase.description && <p className="text-xs muted mt-1">{selectedCase.description}</p>}
                 </div>
-                <div className="flex gap-2">
-                  {selectedCase.parties?.[0]?.subject ? (
-                    <button onClick={onOpenCasePicker ? () => onOpenCasePicker(selectedCase.parties[0].subject) : undefined} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">Add to Case</button>
-                  ) : null}
-                  <button onClick={exportCasePdf} className="rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Export Report (PDF)</button>
-                </div>
+                <button onClick={exportCasePdf} className="btn-secondary text-xs px-3 py-1.5">Export PDF</button>
               </div>
 
+              <div className="grid grid-cols-3 gap-3">
+                <StatCard label="Interactions" value={selectedCase.summary?.total_interactions ?? 0} icon={Activity} accent={ACCENT} />
+                <StatCard label="Risk Score" value={selectedCase.summary?.risk_score ?? 0} icon={AlertTriangle} accent={DANGER} />
+                <StatCard label="Flags" value={selectedCase.summary?.flag_count ?? 0} icon={ShieldAlert} accent="#f59e0b" />
+              </div>
+
+              {/* Parties */}
+              {selectedCase.parties?.length > 0 && (
+                <div>
+                  <p className="label mb-3">Linked Parties</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCase.parties.map((p) => (
+                      <span key={p.subject} className="rounded-xl px-3 py-1.5 mono text-xs" style={{ background: "var(--bg-raised)", border: `1px solid ${p.blacklist_matches?.length ? "rgba(239,68,68,0.3)" : "var(--border-subtle)"}`, color: p.blacklist_matches?.length ? "#f87171" : "var(--text-secondary)" }}>
+                        {p.subject}
+                        {p.blacklist_matches?.length > 0 && <span className="ml-1 badge badge-bl">BL</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Linked parties</h3>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {(selectedCase.parties || []).map((party) => (
-                    <div key={party.subject} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-800">{subjectLabel(party.subject)}</span>
-                        <span className={`rounded-lg border px-2 py-0.5 text-xs ${party.blacklist_matches?.length ? blacklistTone() : riskTone(party.risk.level)}`}>{party.blacklist_matches?.length ? "Blacklist Match" : party.risk.level}</span>
-                      </div>
-                      <p className="mt-1 text-xs muted">{party.status} · {party.interaction_count} interactions</p>
-                      <WhyFlaggedPopover details={party.risk_details || party.flags || []} risk={party.risk} />
+                <p className="label mb-3">Investigator Notes</p>
+                <div className="max-h-40 space-y-2 overflow-y-auto mb-3">
+                  {selectedCase.notes?.map((n) => (
+                    <div key={n.id} className="rounded-xl p-3 text-sm" style={{ background: "var(--bg-raised)", border: "1px solid var(--border-subtle)" }}>
+                      <p style={{ color: "var(--text-primary)", lineHeight: 1.5 }}>{n.note}</p>
+                      <p className="text-xs muted mt-1">{n.created_at}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Mini network graph</h3>
-                  <div className="mt-3">
-                    <NetworkGraph nodes={selectedCase.network?.nodes || []} edges={selectedCase.network?.edges || []} riskLookup={Object.fromEntries((selectedCase.parties || []).map((party) => [party.subject, party.risk.level]))} />
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Add linked party</h3>
-                    <div className="mt-2 flex gap-2">
-                      <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Number or IP" className="flex-1" />
-                      <button onClick={addSubject} disabled={!subject.trim()} className="rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Add</button>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Notes & timeline</h3>
-                    <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add investigator note..." className="mt-2 min-h-24 w-full" />
-                    <button onClick={addNote} disabled={!note.trim()} className="mt-2 rounded-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>Add note</button>
-                    <div className="mt-3 space-y-2">
-                      {(selectedCase.notes || []).slice().reverse().map((item) => (
-                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="flex items-center gap-2 text-xs muted"><Clock3 size={12} />{item.created_at}</div>
-                          <p className="mt-1 text-sm text-slate-800">{item.note}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                <div className="flex gap-2">
+                  <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add investigation note…" className="flex-1" />
+                  <button onClick={addNote} disabled={!note.trim()} className="btn-primary px-4 text-sm">Add</button>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm muted">Select a case to open the case detail page.</div>
+            <div className="flex flex-col items-center justify-center h-48 text-center">
+              <Folder size={36} className="mb-3" style={{ color: "var(--border-default)" }} />
+              <p className="muted text-sm">Select a case to view details</p>
+            </div>
           )}
-        </div>
-      </section>
-
-      {reportData ? (
-        <div className="fixed left-[-9999px] top-0 w-[900px] bg-white p-6 text-slate-900" ref={reportRef}>
-          <ReportSheet data={reportData} kind="case" />
-        </div>
-      ) : null}
+        </section>
+      </div>
+      {reportData && <div className="fixed left-[-9999px] top-0 w-[900px]" ref={reportRef}><ReportSheet data={reportData} kind="case" /></div>}
     </div>
   );
 }
 
+/* ============================================================
+   BLACKLIST VIEW
+   ============================================================ */
 function BlacklistView({ token }) {
   const [entries, setEntries] = useState([]);
   const [value, setValue] = useState("");
   const [valueType, setValueType] = useState("any");
   const [label, setLabel] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch("/blacklist", {}, token)
-      .then(setEntries)
-      .catch((err) => setError(err.message));
+    apiFetch("/blacklist", {}, token).then(setEntries).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, [token]);
 
   async function addEntry() {
+    if (!value.trim() || !label.trim()) return;
     try {
       await apiFetch("/blacklist", { method: "POST", body: JSON.stringify({ value, value_type: valueType, label }) }, token);
-      setValue("");
-      setLabel("");
-      const updated = await apiFetch("/blacklist", {}, token);
-      setEntries(updated);
-    } catch (err) {
-      setError(err.message);
-    }
+      setValue(""); setLabel("");
+      setEntries(await apiFetch("/blacklist", {}, token));
+    } catch (e) { setError(e.message); }
   }
 
-  async function removeEntry(entryId) {
-    await apiFetch(`/blacklist/${entryId}`, { method: "DELETE" }, token);
+  async function removeEntry(id) {
+    await apiFetch(`/blacklist/${id}`, { method: "DELETE" }, token);
     setEntries(await apiFetch("/blacklist", {}, token));
   }
 
   return (
     <div className="space-y-6 fade-in">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+      {error && <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171" }}>{error}</div>}
+
       <section className="card p-5">
-        <div className="grid gap-3 md:grid-cols-[1fr_0.5fr_1.2fr_auto]">
-          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="IP or number" />
-          <select value={valueType} onChange={(e) => setValueType(e.target.value)}>
+        <h2 className="text-lg font-bold heading-tight mb-4" style={{ color: "var(--text-primary)" }}>Add Blacklist Entry</h2>
+        <div className="grid gap-3 md:grid-cols-[1fr_0.5fr_1.5fr_auto]">
+          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="IP address or phone number" id="bl-value" />
+          <select value={valueType} onChange={(e) => setValueType(e.target.value)} id="bl-type">
             <option value="any">Any</option>
             <option value="ip">IP</option>
             <option value="number">Number</option>
           </select>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Reason / label" />
-          <button onClick={addEntry} disabled={!value.trim() || !label.trim()} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
-            <ShieldAlert size={16} className="mr-2 inline" />Add to blacklist
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Reason / intelligence label" id="bl-label" />
+          <button onClick={addEntry} disabled={!value.trim() || !label.trim()} className="btn-danger flex items-center gap-2 px-4" id="bl-add">
+            <ShieldAlert size={14} /> Add
           </button>
         </div>
       </section>
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {entries.map((entry) => (
-          <div key={entry.id} className="card p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{entry.value}</p>
-                <p className="mt-1 text-xs muted">{entry.value_type} · {entry.label}</p>
+
+      <section>
+        <p className="label mb-3">{entries.length} entries in threat database</p>
+        {loading ? <Skeleton className="h-40" /> : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {entries.map((e) => (
+              <div key={e.id} className="card p-4 card-interactive fade-in" style={{ borderLeft: `3px solid rgba(239,68,68,0.6)` }}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="mono text-sm font-semibold" style={{ color: "#f87171" }}>{e.value}</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{e.value_type.toUpperCase()} · {e.label}</p>
+                    <p className="text-xs muted mt-1">{e.created_at?.slice(0, 10)}</p>
+                  </div>
+                  <button onClick={() => removeEntry(e.id)} className="btn-secondary p-1.5 flex-shrink-0">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-              <button onClick={() => removeEntry(entry.id)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600">
-                <Trash2 size={14} />
-              </button>
-            </div>
+            ))}
           </div>
-        ))}
+        )}
       </section>
     </div>
   );
 }
 
+/* ============================================================
+   LOGS VIEW
+   ============================================================ */
 function LogsView({ token }) {
   const [uploads, setUploads] = useState([]);
-  const [selectedUpload, setSelectedUpload] = useState(null);
+  const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function loadUploads() {
-    setError("");
-    setLoading(true);
+    setError(""); setLoading(true);
     try {
-      const result = await apiFetch("/uploads", {}, token);
-      setUploads(result);
-      if (result.length && !selectedUpload) {
-        await openUpload(result[0].id);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      const res = await apiFetch("/uploads", {}, token);
+      setUploads(res);
+      if (res.length && !selected) openUpload(res[0].id);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }
 
-  async function openUpload(uploadId) {
+  async function openUpload(id) {
     setDetailLoading(true);
-    try {
-      const result = await apiFetch(`/uploads/${uploadId}`, {}, token);
-      setSelectedUpload(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDetailLoading(false);
-    }
+    try { const r = await apiFetch(`/uploads/${id}`, {}, token); setSelected(r); }
+    catch (e) { setError(e.message); }
+    finally { setDetailLoading(false); }
   }
 
-  useEffect(() => {
-    loadUploads();
-  }, [token]);
+  useEffect(() => { loadUploads(); }, [token]);
 
   return (
     <div className="space-y-6 fade-in">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
-      <section className="grid gap-4 xl:grid-cols-[340px_1fr]">
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Past Logs</h2>
-              <p className="text-sm muted">Every uploaded dataset stays separated here.</p>
-            </div>
-            <button onClick={loadUploads} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700">Refresh</button>
+      {error && <div className="rounded-xl p-3 text-sm" style={{ background: "var(--danger-soft)", color: "#f87171" }}>{error}</div>}
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
+        <section className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold heading-tight" style={{ color: "var(--text-primary)" }}>Upload History</h2>
+            <button onClick={loadUploads} className="btn-secondary text-xs px-2 py-1"><RefreshCw size={12} /></button>
           </div>
-          <div className="mt-4 space-y-3">
-            {loading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : uploads.length ? (
-              uploads.map((upload) => (
-                <button
-                  key={upload.id}
-                  onClick={() => openUpload(upload.id)}
-                  className={`w-full rounded-xl border p-4 text-left shadow-sm ${selectedUpload?.upload?.id === upload.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-800">{upload.filename}</p>
-                      <p className="mt-1 text-xs muted">{upload.file_type.toUpperCase()} · {upload.record_count || upload.valid_rows} records · {upload.error_rows} errors</p>
-                    </div>
-                    <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">{upload.created_at}</span>
-                  </div>
+          {loading ? <Skeleton className="h-24" /> : uploads.length ? (
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              {uploads.map((u) => (
+                <button key={u.id} onClick={() => openUpload(u.id)} className="w-full rounded-xl p-3 text-left transition card-interactive" style={{ background: selected?.upload?.id === u.id ? "var(--accent-soft)" : "var(--bg-raised)", border: `1px solid ${selected?.upload?.id === u.id ? "rgba(59,130,246,0.35)" : "var(--border-subtle)"}` }}>
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{u.filename}</p>
+                  <p className="text-xs muted mt-1">{u.file_type?.toUpperCase()} · {u.record_count || u.valid_rows} records · {u.error_rows} errors</p>
+                  <p className="text-xs muted">{u.created_at?.slice(0, 16)}</p>
                 </button>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm muted">No uploaded logs yet. Upload a file from the dashboard to begin.</div>
-            )}
-          </div>
-        </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl p-4 text-center text-sm muted" style={{ background: "var(--bg-raised)", border: "1px dashed var(--border-default)" }}>
+              No uploads yet.
+            </div>
+          )}
+        </section>
 
-        <div className="card p-5">
-          {detailLoading ? (
-            <Skeleton className="h-72 w-full" />
-          ) : selectedUpload ? (
+        <section className="card p-5">
+          {detailLoading ? <Skeleton className="h-72" /> : selected ? (
             <div className="space-y-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-bold heading-tight text-slate-900">{selectedUpload.upload.filename}</h2>
-                  <p className="text-sm muted">Stored separately as its own dataset in the database.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs muted">Valid rows</p><p className="text-lg font-semibold text-slate-900">{selectedUpload.upload.valid_rows}</p></div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs muted">Errors</p><p className="text-lg font-semibold text-slate-900">{selectedUpload.upload.error_rows}</p></div>
-                </div>
+              <div>
+                <p className="label">Dataset Detail</p>
+                <h2 className="heading-tight text-xl mt-1" style={{ color: "var(--text-primary)" }}>{selected.upload.filename}</h2>
               </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <StatCard label="Total rows" value={selectedUpload.upload.total_rows} icon={FileText} accent="#1e40af" />
-                <StatCard label="Records stored" value={selectedUpload.records.length} icon={Database} accent="#1e40af" />
-                <StatCard label="Parse errors" value={selectedUpload.errors.length} icon={AlertTriangle} accent="#b91c1c" />
+              <div className="grid grid-cols-3 gap-3">
+                <StatCard label="Total Rows" value={selected.upload.total_rows} icon={FileText} accent={ACCENT} />
+                <StatCard label="Valid" value={selected.records.length} icon={Database} accent="#10b981" />
+                <StatCard label="Errors" value={selected.errors.length} icon={AlertTriangle} accent={DANGER} />
               </div>
-
-              <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="grid gap-5 xl:grid-cols-2">
                 <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Records</h3>
-                  <div className="mt-3 max-h-[420px] overflow-auto rounded-xl border border-slate-200">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-slate-50 text-slate-600">
-                        <tr>
-                          <th className="border-b border-slate-200 px-3 py-2">A-party</th>
-                          <th className="border-b border-slate-200 px-3 py-2">B-party</th>
-                          <th className="border-b border-slate-200 px-3 py-2">Timestamp</th>
-                          <th className="border-b border-slate-200 px-3 py-2">Duration</th>
-                        </tr>
-                      </thead>
+                  <p className="label mb-3">Records</p>
+                  <div className="max-h-80 overflow-auto rounded-xl" style={{ border: "1px solid var(--border-subtle)" }}>
+                    <table className="min-w-full">
+                      <thead><tr><th>A-Party</th><th>B-Party</th><th>Timestamp</th><th>Dur.</th></tr></thead>
                       <tbody>
-                        {selectedUpload.records.map((row) => (
-                          <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="px-3 py-2">{row.a_party}</td>
-                            <td className="px-3 py-2">{row.b_party_ip || row.b_party_number}</td>
-                            <td className="px-3 py-2">{row.timestamp}</td>
-                            <td className="px-3 py-2">{Math.round(row.duration_sec || 0)}</td>
+                        {selected.records.map((row) => (
+                          <tr key={row.id}>
+                            <td className="mono">{row.a_party}</td>
+                            <td className="mono">{row.b_party_ip || row.b_party_number}</td>
+                            <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{row.timestamp}</td>
+                            <td>{Math.round(row.duration_sec || 0)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
-
                 <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Parse errors</h3>
-                  <div className="mt-3 space-y-2 max-h-[420px] overflow-auto">
-                    {selectedUpload.errors.length ? selectedUpload.errors.map((err) => (
-                      <div key={err.id} className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                        <p className="font-semibold">Row {err.row_index}</p>
-                        <p className="mt-1">{err.message}</p>
+                  <p className="label mb-3">Parse Errors</p>
+                  <div className="max-h-80 overflow-auto space-y-2">
+                    {selected.errors.length ? selected.errors.map((e) => (
+                      <div key={e.id} className="rounded-xl p-3 text-xs" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171" }}>
+                        <p className="font-semibold">Row {e.row_index}</p>
+                        <p className="muted mt-0.5">{e.message}</p>
                       </div>
-                    )) : <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm muted">No parse errors for this dataset.</div>}
+                    )) : (
+                      <div className="rounded-xl p-4 text-sm muted text-center" style={{ background: "var(--bg-raised)" }}>No parse errors.</div>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm muted">Select a dataset to inspect its records.</div>
+            <div className="flex flex-col items-center justify-center h-48 text-center">
+              <FileText size={36} className="mb-3" style={{ color: "var(--border-default)" }} />
+              <p className="muted text-sm">Select a dataset to inspect</p>
+            </div>
           )}
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
 
+/* ============================================================
+   SETTINGS VIEW
+   ============================================================ */
 function SettingsView({ token }) {
   const [settings, setSettings] = useState(null);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    apiFetch("/settings", {}, token)
-      .then(setSettings)
-      .catch((err) => setStatus(err.message));
+    apiFetch("/settings", {}, token).then(setSettings).catch((e) => setStatus(e.message));
   }, [token]);
 
-  function update(key, value) {
-    setSettings((current) => ({ ...current, [key]: value }));
-  }
+  function update(key, val) { setSettings((s) => ({ ...s, [key]: val })); }
 
   async function save() {
     try {
-      const result = await apiFetch("/settings", { method: "PUT", body: JSON.stringify(settings) }, token);
-      setSettings(result);
-      setStatus("Saved");
-    } catch (err) {
-      setStatus(err.message);
-    }
+      const r = await apiFetch("/settings", { method: "PUT", body: JSON.stringify(settings) }, token);
+      setSettings(r);
+      setStatus("✓ Settings saved");
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) { setStatus(e.message); }
   }
 
-  if (!settings) return <Skeleton className="h-56 w-full" />;
+  if (!settings) return <Skeleton className="h-48 w-full" />;
 
-  const fields = [
-    ["night_start_hour", "Night start hour"],
-    ["night_end_hour", "Night end hour"],
-    ["night_frequency_threshold", "Night frequency threshold"],
-    ["short_duration_threshold_sec", "Short session threshold (sec)"],
-    ["short_duration_repeat_threshold", "Short session repeat threshold"],
-    ["distinct_window_minutes", "Distinct B-party window (min)"],
-    ["distinct_b_threshold", "Distinct B-party threshold"],
-    ["shared_bparty_threshold", "Shared B-party threshold"],
-    ["graph_limit", "Graph record limit"],
+  const FIELDS = [
+    { section: "Night Activity", fields: [["night_start_hour", "Night Start Hour (0-23)"], ["night_end_hour", "Night End Hour (0-23)"], ["night_frequency_threshold", "Min. calls to trigger flag"]] },
+    { section: "Short Sessions", fields: [["short_duration_threshold_sec", "Short session threshold (sec)"], ["short_duration_repeat_threshold", "Repeat count to trigger flag"]] },
+    { section: "Fan-out Detection", fields: [["distinct_window_minutes", "Time window (minutes)"], ["distinct_b_threshold", "Distinct B-parties threshold"]] },
+    { section: "Network Analysis", fields: [["shared_bparty_threshold", "Shared B-party hub threshold"], ["graph_limit", "Max nodes in network graph"]] },
   ];
 
   return (
     <section className="card p-6 fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-bold heading-tight text-slate-900">Suspicious Activity Thresholds</h2>
-          <p className="text-sm muted">Configure rule-based alerts.</p>
+          <h2 className="text-xl font-bold heading-tight" style={{ color: "var(--text-primary)" }}>Detection Thresholds</h2>
+          <p className="text-xs muted mt-1">Configure rule-based and ML detection parameters</p>
         </div>
-        <button onClick={save} className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: ACCENT }}>
-          Save
-        </button>
+        <div className="flex items-center gap-3">
+          {status && <span className="text-xs" style={{ color: status.startsWith("✓") ? "#10b981" : "#f87171" }}>{status}</span>}
+          <button onClick={save} className="btn-primary text-sm">Save</button>
+        </div>
       </div>
-      {status ? <p className="mt-3 text-sm muted">{status}</p> : null}
-      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {fields.map(([key, label]) => (
-          <label key={key} className="space-y-2 text-sm text-slate-700">
-            <span className="font-medium">{label}</span>
-            <input type="number" value={settings[key]} onChange={(e) => update(key, Number(e.target.value))} className="w-full" />
-          </label>
+      <div className="space-y-6">
+        {FIELDS.map(({ section, fields }) => (
+          <div key={section}>
+            <p className="label mb-3">{section}</p>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {fields.map(([key, label]) => (
+                <label key={key} className="space-y-1.5 text-sm">
+                  <span className="font-medium" style={{ color: "var(--text-secondary)" }}>{label}</span>
+                  <input type="number" value={settings[key]} onChange={(e) => update(key, Number(e.target.value))} className="w-full" />
+                </label>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
+/* ============================================================
+   SHELL (main layout)
+   ============================================================ */
 function Shell({ token, username, onLogout }) {
   const [view, setView] = useState("dashboard");
   const [casePickerSubject, setCasePickerSubject] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const menu = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "logs", label: "Past Logs", icon: FileText },
-    { id: "cases", label: "Cases", icon: Folder },
+    { id: "ml", label: "ML Intelligence", icon: Brain },
     { id: "search", label: "Search", icon: Search },
-    { id: "blacklist", label: "Blacklist", icon: ShieldAlert },
+    { id: "cases", label: "Cases", icon: Folder },
+    { id: "logs", label: "Upload Logs", icon: FileText },
+    { id: "blacklist", label: "Blacklist DB", icon: ShieldAlert },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
   return (
-    <div className="min-h-full bg-slate-50 text-slate-900">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 flex-col border-r border-slate-200 bg-slate-100 px-4 py-6 lg:flex">
-          <div className="mb-8 px-2">
-            <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>IPDR Insight</p>
-            <h2 className="mt-2 text-2xl font-bold heading-tight text-slate-900">Investigation Tool</h2>
-          </div>
-          <nav className="space-y-1">
-            {menu.map((item) => {
-              const Icon = item.icon;
-              const active = view === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setView(item.id)}
-                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "border-blue-700 bg-blue-50 text-blue-800" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
-                >
-                  <Icon size={16} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-          <div className="mt-auto pt-6">
-            <button onClick={onLogout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:shadow-sm">
-              <LogOut size={16} />
-              Logout
-            </button>
-          </div>
-        </aside>
-
-        <main className="flex-1">
-          <header className="border-b border-slate-200 bg-white px-4 py-4 lg:px-8">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm muted">Logged in as {username}</p>
-                <h1 className="text-2xl font-bold heading-tight capitalize text-slate-900">{view}</h1>
-              </div>
-              <div className="flex gap-2 lg:hidden">
-                {menu.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setView(item.id)}
-                    className={`rounded-xl px-3 py-2 text-sm ${view === item.id ? "bg-blue-100 text-blue-800" : "bg-white border border-slate-300 text-slate-700"}`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+    <div className="flex min-h-screen" style={{ background: "var(--bg-base)" }}>
+      {/* Sidebar */}
+      <aside
+        className="hidden lg:flex flex-col"
+        style={{
+          width: "var(--sidebar-w)",
+          background: "#ffffff",
+          borderRight: "1px solid var(--border-default)",
+          flexShrink: 0,
+          boxShadow: "1px 0 0 var(--border-subtle)",
+        }}
+      >
+        {/* Brand */}
+        <div className="px-5 py-6" style={{ borderBottom: "1px solid var(--border-default)" }}>
+          <div className="flex items-center gap-2.5 mb-1">
+            <div className="rounded-xl p-1.5" style={{ background: "var(--accent-soft)", border: "1px solid rgba(59,130,246,0.25)" }}>
+              <ShieldAlert size={16} style={{ color: ACCENT }} />
             </div>
-          </header>
-
-          <div className="p-4 lg:p-8">
-            {view === "dashboard" ? <DashboardView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
-            {view === "logs" ? <LogsView token={token} /> : null}
-            {view === "cases" ? <CasesView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
-            {view === "search" ? <SearchView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
-            {view === "blacklist" ? <BlacklistView token={token} /> : null}
-            {view === "settings" ? <SettingsView token={token} /> : null}
+            <p className="text-xs font-black tracking-[0.18em]" style={{ color: ACCENT }}>IPDR INTELLIGENCE</p>
           </div>
+          <p className="text-xs ml-8" style={{ color: "var(--text-muted)", letterSpacing: "0.08em" }}>Criminal Investigation Branch</p>
+        </div>
 
-          {casePickerSubject ? (
-            <CasePickerModal
-              token={token}
-              subject={casePickerSubject}
-              onClose={() => setCasePickerSubject("")}
-              onAssigned={() => setCasePickerSubject("")}
-            />
-          ) : null}
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5">
+          {menu.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={`nav-item${view === id ? " active" : ""}`}
+            >
+              <Icon size={16} />
+              {label}
+              {id === "ml" && <span className="ml-auto badge badge-ml text-xs px-1.5 py-0.5">AI</span>}
+            </button>
+          ))}
+        </nav>
 
-          <footer className="border-t border-slate-200 bg-white px-4 py-4 text-xs muted lg:px-8">
-            Data is handled per privacy-compliance guidelines for local investigative analysis demos.
-          </footer>
+        {/* User */}
+        <div className="px-3 py-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          <div className="rounded-xl p-3 mb-3" style={{ background: "var(--bg-panel)", border: "1px solid var(--border-subtle)" }}>
+            <p className="text-xs muted">Authenticated as</p>
+            <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--text-primary)" }}>{username}</p>
+            <p className="text-xs muted">RESTRICTED ACCESS</p>
+          </div>
+          <button onClick={onLogout} className="btn-secondary w-full text-sm py-2 flex items-center justify-center gap-2">
+            <LogOut size={14} /> Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <header style={{ background: "#ffffff", borderBottom: "1px solid var(--border-default)", padding: "0.75rem 1.5rem" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs muted capitalize">{view.replace("_", " ")}</p>
+              <h1 className="heading-tight text-lg" style={{ color: "var(--text-primary)" }}>
+                {menu.find((m) => m.id === view)?.label || "Dashboard"}
+              </h1>
+            </div>
+            {/* Mobile menu pills */}
+            <div className="flex gap-1 lg:hidden flex-wrap">
+              {menu.slice(0, 4).map(({ id, label }) => (
+                <button key={id} onClick={() => setView(id)} className="text-xs px-2 py-1 rounded-lg" style={{ background: view === id ? "var(--accent-soft)" : "var(--bg-raised)", color: view === id ? ACCENT : "var(--text-muted)", border: `1px solid ${view === id ? "rgba(59,130,246,0.3)" : "var(--border-subtle)"}` }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* View content */}
+        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+          <ErrorBoundary>
+            {view === "dashboard" && <DashboardView token={token} onOpenCasePicker={setCasePickerSubject} />}
+            {view === "ml" && <MLInsightsView token={token} />}
+            {view === "search" && <SearchView token={token} onOpenCasePicker={setCasePickerSubject} />}
+            {view === "cases" && <CasesView token={token} onOpenCasePicker={setCasePickerSubject} />}
+            {view === "logs" && <LogsView token={token} />}
+            {view === "blacklist" && <BlacklistView token={token} />}
+            {view === "settings" && <SettingsView token={token} />}
+          </ErrorBoundary>
         </main>
+
+        {casePickerSubject && (
+          <CasePickerModal
+            token={token}
+            subject={casePickerSubject}
+            onClose={() => setCasePickerSubject("")}
+            onAssigned={() => setCasePickerSubject("")}
+          />
+        )}
+
+        <footer style={{ background: "#f8fafc", borderTop: "1px solid var(--border-default)", padding: "0.5rem 1.5rem" }}>
+          <p className="text-xs muted">IPDR Intelligence Platform · CIB India · Local investigative use only · Data stays on device</p>
+        </footer>
       </div>
     </div>
   );
 }
 
+/* ============================================================
+   ROOT APP
+   ============================================================ */
 export default function App() {
   const auth = useAuth();
   const [booting, setBooting] = useState(false);
@@ -1691,11 +2419,12 @@ export default function App() {
   const [bootIndex, setBootIndex] = useState(0);
 
   useEffect(() => {
-    if (!booting) return undefined;
-    setBootProgress(8);
+    if (!booting) return;
+    setBootProgress(5);
     setBootIndex(0);
     const started = Date.now();
-    const duration = 2100;
+    const duration = 2400;
+
     const progressTimer = setInterval(() => {
       const elapsed = Date.now() - started;
       const pct = (elapsed / duration) * 100;
@@ -1704,12 +2433,14 @@ export default function App() {
         clearInterval(progressTimer);
         clearInterval(textTimer);
         setBootProgress(100);
-        setTimeout(() => setBooting(false), 120);
+        setTimeout(() => setBooting(false), 150);
       }
-    }, 90);
+    }, 80);
+
     const textTimer = setInterval(() => {
       setBootIndex((idx) => (idx + 1) % BOOT_MESSAGES.length);
-    }, 560);
+    }, 500);
+
     return () => {
       clearInterval(progressTimer);
       clearInterval(textTimer);
@@ -1717,14 +2448,7 @@ export default function App() {
   }, [booting]);
 
   if (!auth.token) {
-    return (
-      <LoginView
-        onLogin={(payload) => {
-          auth.login(payload);
-          setBooting(true);
-        }}
-      />
-    );
+    return <LoginView onLogin={(p) => { auth.login(p); setBooting(true); }} />;
   }
   if (booting) return <BootScreen message={BOOT_MESSAGES[bootIndex]} progress={bootProgress} />;
   return <Shell token={auth.token} username={auth.username} onLogout={auth.logout} />;

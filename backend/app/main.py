@@ -37,6 +37,9 @@ from .services import (
     import_records,
     is_relevant_record,
     load_rows_from_upload,
+    ml_anomaly_scores,
+    ml_cluster_parties,
+    ml_predict_party,
     parse_investigation_rows,
     record_matches_filters,
 )
@@ -559,6 +562,35 @@ def update_settings(payload: SettingsPayload, user=Depends(get_current_user)):
 def investigation(query: str, user=Depends(get_current_user)):
     with connect() as conn:
         return _load_investigation_payload(conn, query)
+
+
+@app.get("/ml/anomaly")
+def ml_anomaly(user=Depends(get_current_user)):
+    """Return ML-based anomaly scores for all A-parties using Isolation Forest."""
+    with connect() as conn:
+        results = ml_anomaly_scores(conn)
+    return {"results": results, "count": len(results), "feature_names": [
+        "night_call_ratio", "short_session_ratio", "fan_out_rate",
+        "avg_duration_sec", "call_velocity_per_hour", "distinct_b_ratio",
+        "blacklist_contact_ratio",
+    ]}
+
+
+@app.get("/ml/clusters")
+def ml_clusters(user=Depends(get_current_user)):
+    """Return DBSCAN behavioral clusters for all A-parties."""
+    with connect() as conn:
+        results = ml_cluster_parties(conn)
+    return {"results": results, "count": len(results)}
+
+
+@app.get("/ml/predict/{a_party}")
+def ml_predict(a_party: str, user=Depends(get_current_user)):
+    """Full ML behavioral prediction with explainability for one A-party."""
+    with connect() as conn:
+        return ml_predict_party(conn, a_party)
+
+
 
 
 def _csv_bytes(rows):

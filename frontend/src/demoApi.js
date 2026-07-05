@@ -813,6 +813,159 @@ const demo = {
       errors: [],
     };
   },
+
+  // ── HEATMAP ENDPOINT (direct read, no computeFlags) ───────────────────
+  heatmapGrid() {
+    // Returns a 7×24 matrix of call counts (day-of-week × hour-of-day)
+    const matrix = Array.from({ length: 7 }, () => Array(24).fill(0));
+    records.forEach((r) => {
+      try {
+        const dt = new Date(String(r.timestamp).replace(" ", "T"));
+        if (!isNaN(dt.getTime())) {
+          matrix[dt.getDay()][dt.getHours()]++;
+        }
+      } catch {}
+    });
+    return { grid: matrix, total_records: records.length };
+  },
+
+  // ── ML ENDPOINTS (client-side simulation) ─────────────────────────────
+
+  async mlAnomaly() {
+    const allRecords = records;
+    const byA = {};
+    allRecords.forEach((r) => {
+      if (!byA[r.a_party]) byA[r.a_party] = [];
+      byA[r.a_party].push(r);
+    });
+
+    const blValues = new Set(blacklistEntries.map((e) => e.value));
+    const NIGHT_START = settings.night_start_hour;
+    const NIGHT_END = settings.night_end_hour;
+
+    function isNight(h) {
+      if (NIGHT_START === NIGHT_END) return true;
+      if (NIGHT_START < NIGHT_END) return h >= NIGHT_START && h < NIGHT_END;
+      return h >= NIGHT_START || h < NIGHT_END;
+    }
+
+    function extractFeatures(items) {
+      const total = items.length || 1;
+      const nightCalls = items.filter((r) => { const d = parseDateTime(r.timestamp); return d && isNight(d.getHours()); }).length;
+      const shortSess = items.filter((r) => (r.duration_sec || 0) < settings.short_duration_threshold_sec).length;
+      const bIds = new Set(items.map((r) => r.b_party_ip || r.b_party_number).filter(Boolean));
+      const durations = items.map((r) => r.duration_sec || 0);
+      const avgDur = durations.reduce((a, b) => a + b, 0) / total;
+      const dts = items.map((r) => parseDateTime(r.timestamp)).filter(Boolean).sort((a, b) => a - b);
+      const spanHrs = dts.length >= 2 ? Math.max(1, (dts[dts.length - 1] - dts[0]) / 3600000) : 1;
+      const velocity = total / spanHrs;
+      const blHits = items.filter((r) => blValues.has(r.b_party_ip) || blValues.has(r.b_party_number)).length;
+      return {
+        night_call_ratio: nightCalls / total,
+        short_session_ratio: shortSess / total,
+        fan_out_rate: bIds.size / total,
+        avg_duration_sec: avgDur,
+        call_velocity_per_hour: velocity,
+        distinct_b_ratio: bIds.size / total,
+        blacklist_contact_ratio: blHits / total,
+      };
+    }
+
+    const parties = Object.keys(byA);
+    const featuresArr = parties.map((a) => extractFeatures(byA[a]));
+
+    // Simple anomaly score: weighted deviation from median across features
+    function median(arr) { const s = [...arr].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+    const KEYS = ["night_call_ratio", "short_session_ratio", "fan_out_rate", "call_velocity_per_hour", "blacklist_contact_ratio"];
+    const WEIGHTS = [1.8, 1.4, 1.6, 1.2, 2.5];
+    const medians = KEYS.map((k) => median(featuresArr.map((f) => f[k] || 0)));
+    const stds = KEYS.map((k, ki) => {
+      const vals = featuresArr.map((f) => f[k] || 0);
+      const med = medians[ki];
+      return Math.max(0.001, Math.sqrt(vals.reduce((s, v) => s + (v - med) ** 2, 0) / vals.length));
+    });
+
+    const rawScores = featuresArr.map((f) =>
+      KEYS.reduce((sum, k, ki) => sum + WEIGHTS[ki] * Math.abs((f[k] - medians[ki]) / stds[ki]), 0)
+    );
+    const maxRaw = Math.max(1, ...rawScores);
+    const anomalyThreshold = maxRaw * 0.6;
+
+    const results = parties.map((a, i) => {
+      const score = Math.round((rawScores[i] / maxRaw) * 100);
+      const isAnomaly = rawScores[i] > anomalyThreshold;
+      const features = featuresArr[i];
+      const topContributors = KEYS.map((k, ki) => ({ feature: k, z_score: parseFloat(((features[k] - medians[ki]) / stds[ki]).toFixed(3)), value: parseFloat((features[k] || 0).toFixed(4)) }))
+        .sort((a, b) => Math.abs(b.z_score) - Math.abs(a.z_score)).slice(0, 3);
+      return {
+        a_party: a,
+        anomaly_score: score,
+        is_anomaly: isAnomaly,
+        confidence: parseFloat(Math.min(1, 0.5 + Math.abs(rawScores[i] - anomalyThreshold) / maxRaw).toFixed(3)),
+        features,
+        top_contributors: topContributors,
+        interaction_count: byA[a].length,
+        ml_available: true,
+      };
+    });
+    results.sort((a, b) => b.anomaly_score - a.anomaly_score);
+    return {
+      results,
+      count: results.length,
+      feature_names: ["night_call_ratio", "short_session_ratio", "fan_out_rate", "avg_duration_sec", "call_velocity_per_hour", "distinct_b_ratio", "blacklist_contact_ratio"],
+    };
+  },
+
+  async mlClusters() {
+    const anomalyData = await demo.mlAnomaly();
+    const results = anomalyData.results;
+    const LABELS = ["Syndicate Alpha", "Network Beta", "Cell Gamma", "Group Delta", "Ring Epsilon", "Isolated / Extreme"];
+    // Simple bucketing by score quintile
+    const clustered = results.map((r, i) => {
+      const clusterIdx = r.is_anomaly ? 5 : Math.floor((r.anomaly_score / 100) * 4);
+      return {
+        a_party: r.a_party,
+        cluster: r.is_anomaly ? -1 : clusterIdx,
+        cluster_label: r.is_anomaly ? "Isolated / Extreme" : LABELS[clusterIdx] || "Ungrouped",
+        features: r.features,
+        interaction_count: r.interaction_count,
+      };
+    });
+    return { results: clustered, count: clustered.length };
+  },
+
+  async mlPredict(aParty) {
+    const anomalyData = await demo.mlAnomaly();
+    const clusterData = await demo.mlClusters();
+    const score = anomalyData.results.find((r) => r.a_party === aParty);
+    const cluster = clusterData.results.find((r) => r.a_party === aParty);
+
+    if (!score) return { a_party: aParty, anomaly_score: 0, is_anomaly: false, confidence: 0.5, cluster: -1, cluster_label: "Unknown", features: {}, insight: "No data.", ml_available: false };
+
+    const f = score.features;
+    const insights = [];
+    if ((f.night_call_ratio || 0) > 0.5) insights.push(`Over ${Math.round(f.night_call_ratio * 100)}% of activity occurs at night — high operational secrecy indicator.`);
+    if ((f.short_session_ratio || 0) > 0.6) insights.push(`High proportion (${Math.round(f.short_session_ratio * 100)}%) of short sessions — consistent with signal-testing or dead-drop coordination.`);
+    if ((f.fan_out_rate || 0) > 0.5) insights.push(`High fan-out rate (${f.fan_out_rate.toFixed(2)}) — contacts many unique destinations, indicating potential coordination hub.`);
+    if ((f.blacklist_contact_ratio || 0) > 0) insights.push(`Has contact with known-bad infrastructure (${(f.blacklist_contact_ratio * 100).toFixed(1)}% of sessions).`);
+    if ((f.call_velocity_per_hour || 0) > 10) insights.push(`Unusually high call velocity (${f.call_velocity_per_hour.toFixed(1)} calls/hr) — possible automated or scripted activity.`);
+    if (!insights.length) insights.push("Behavioral pattern within normal operational bounds.");
+
+    return {
+      a_party: aParty,
+      anomaly_score: score.anomaly_score,
+      is_anomaly: score.is_anomaly,
+      confidence: score.confidence,
+      cluster: cluster ? cluster.cluster : -1,
+      cluster_label: cluster ? cluster.cluster_label : "Unknown",
+      features: f,
+      top_contributors: score.top_contributors,
+      insight: insights.join(" "),
+      ml_available: true,
+      interaction_count: score.interaction_count,
+    };
+  },
 };
 
 export { demo, records };
+
