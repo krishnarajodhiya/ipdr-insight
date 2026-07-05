@@ -228,31 +228,36 @@ function LoginView({ onLogin }) {
     <div className="relative min-h-full overflow-hidden px-4">
       <CyberBackdrop />
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-md items-center justify-center py-10">
-        <div className="w-full rounded-2xl border border-white/40 bg-white/92 p-8 shadow-2xl backdrop-blur-md fade-in">
-          <div className="mb-6 text-center">
-            <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-800">
-              <Network size={20} />
+        <div className="w-full rounded-3xl border border-white/10 bg-white/10 p-8 shadow-[0_16px_40px_0_rgba(0,0,0,0.4)] backdrop-blur-2xl fade-in relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none rounded-3xl"></div>
+          <div className="mb-6 text-center relative z-10">
+            <div className="mx-auto flex h-24 w-24 items-center justify-center mb-4">
+              <img src="/logo.png" alt="MP Police" className="h-full w-full object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]" />
             </div>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.26em] text-blue-800">IPDR INSIGHT</p>
-            <h1 className="mt-2 text-3xl font-bold heading-tight text-slate-900">Secure Access</h1>
-            <p className="mt-2 text-sm muted">Investigation dashboard authentication</p>
+            <p className="mt-2 text-xs font-bold uppercase tracking-[0.3em] text-blue-200">Madhya Pradesh POLICE</p>
+            <h1 className="mt-1 text-3xl font-extrabold heading-tight text-white drop-shadow-sm">Secure Access</h1>
+            <p className="mt-2 text-sm text-slate-300 font-medium">Authorized personnel only</p>
           </div>
-          <form onSubmit={submit} className="space-y-4">
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="w-full" />
+          <form onSubmit={submit} className="space-y-4 relative z-10">
+            <input 
+              value={username} 
+              onChange={(e) => setUsername(e.target.value)} 
+              placeholder="Username" 
+              className="w-full bg-slate-900/40 border-white/10 text-white placeholder-white/40 focus:border-[#A38F58] focus:ring-1 focus:ring-[#A38F58] backdrop-blur-md rounded-xl transition-all" 
+            />
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
               type="password"
-              className="w-full"
+              className="w-full bg-slate-900/40 border-white/10 text-white placeholder-white/40 focus:border-[#A38F58] focus:ring-1 focus:ring-[#A38F58] backdrop-blur-md rounded-xl transition-all"
             />
-            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+            {error ? <p className="text-sm font-medium text-[#B22222] bg-red-900/30 px-3 py-2 rounded-lg border border-red-500/20">{error}</p> : null}
             <button
               disabled={loading}
-              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm hover:shadow"
-              style={{ backgroundColor: ACCENT }}
+              className="w-full rounded-xl px-4 py-3.5 text-sm font-bold text-white shadow-[0_0_20px_rgba(55,79,107,0.5)] transition-all hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(55,79,107,0.8)] active:scale-[0.98] bg-gradient-to-r from-[#374F6B] to-[#1e293b]"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "Authenticating..." : "Sign in"}
             </button>
           </form>
         </div>

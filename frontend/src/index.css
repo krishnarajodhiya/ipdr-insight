@@ -95,9 +95,15 @@ button {
 .auth-bg-gradient {
   position: absolute;
   inset: 0;
-  background: radial-gradient(1200px 600px at 15% 10%, rgba(59, 130, 246, 0.2), transparent 55%),
-    radial-gradient(1100px 550px at 90% 100%, rgba(99, 102, 241, 0.16), transparent 55%),
-    linear-gradient(140deg, #0b1326 0%, #111b33 45%, #1f2d4a 100%);
+  background: linear-gradient(-45deg, #0b1326, #1b2c45, #374F6B, #4e4429, #361717);
+  background-size: 400% 400%;
+  animation: gradientShift 18s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .auth-bg-grid {
