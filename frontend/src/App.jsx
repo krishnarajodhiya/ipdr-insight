@@ -736,7 +736,7 @@ function DashboardView({ token, onOpenCasePicker }) {
         </div>
 
         {/* RIGHT COLUMN: Intelligence Feed */}
-        <section className="card fade-in flex flex-col h-full overflow-hidden">
+        <section className="card fade-in flex flex-col h-full overflow-hidden min-h-0">
           <div className="p-4 border-b border-slate-100 shrink-0">
             <h2 className="text-lg font-bold text-slate-900 mb-1">Intelligence Feed</h2>
             <p className="text-xs text-slate-500">Most Suspicious Numbers</p>
@@ -756,7 +756,7 @@ function DashboardView({ token, onOpenCasePicker }) {
             </div>
           </div>
 
-          <div className="p-3 space-y-2 overflow-y-auto flex-grow" style={{ maxHeight: '520px' }}>
+          <div className="p-3 space-y-2 overflow-y-auto flex-grow min-h-0">
             {loading ? (
               <>
                 <Skeleton className="h-28" />
