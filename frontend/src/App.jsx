@@ -700,7 +700,7 @@ function DashboardView({ token, onOpenCasePicker }) {
       </section>
 
       {/* BOTTOM: 2 Column Layout (Graph Left, Intelligence Right) */}
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-[1fr_350px] flex-grow min-h-[700px]">
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-[1fr_350px] h-[calc(100vh-140px)] min-h-[700px]">
         
         {/* LEFT COLUMN: Map & Timeline */}
         <div className="flex flex-col gap-4">
