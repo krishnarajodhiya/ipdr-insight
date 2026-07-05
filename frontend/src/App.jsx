@@ -508,7 +508,7 @@ function UploadDropzone({ onFile }) {
           <Upload size={16} />
         </div>
         <div>
-          <p className="font-medium text-slate-800">Drag & drop IPDR file here</p>
+          <p className="font-medium text-slate-800">Drag & drop Phone Log file here</p>
           <p className="muted">Supports CSV, TXT, JSON</p>
         </div>
       </div>
@@ -610,8 +610,8 @@ function DashboardView({ token, onOpenCasePicker }) {
         <section className="card p-5 fade-in">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold heading-tight text-slate-900">A-party ↔ B-party Network</h2>
-              <p className="text-sm muted">Zoom with scroll, drag to pan, click top flagged entries to focus nodes.</p>
+              <h2 className="text-xl font-bold heading-tight text-slate-900">Caller ↔ Receiver Network</h2>
+              <p className="text-sm muted">See who is talking to who. Bigger circles mean more calls. Click flagged entries to focus.</p>
             </div>
             <label
               className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm"
@@ -629,7 +629,7 @@ function DashboardView({ token, onOpenCasePicker }) {
         </section>
 
         <section className="card p-5 fade-in">
-          <h2 className="text-xl font-bold heading-tight text-slate-900">Parse Summary</h2>
+          <h2 className="text-xl font-bold heading-tight text-slate-900">Upload Summary</h2>
           {uploadResult ? (
             <div className="mt-4 grid gap-2 text-sm text-slate-700">
               <p><span className="font-medium">File:</span> {uploadResult.filename}</p>
@@ -639,11 +639,11 @@ function DashboardView({ token, onOpenCasePicker }) {
               <p><span className="font-medium">Date range:</span> {uploadResult.date_min || "-"} to {uploadResult.date_max || "-"}</p>
             </div>
           ) : (
-            <p className="mt-3 text-sm muted">Upload an IPDR file to view parser stats.</p>
+            <p className="mt-3 text-sm muted">Upload a Phone Log file to view details.</p>
           )}
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged A-parties</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Top flagged callers</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               {[["all", "All"], ["auto", "Auto"], ["manual", "Manual"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
                 <button
