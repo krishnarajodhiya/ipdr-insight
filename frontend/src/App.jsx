@@ -31,6 +31,7 @@ import {
   ZoomIn,
   ZoomOut,
   RefreshCw,
+  ChevronLeft,
 } from "lucide-react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
@@ -524,8 +525,87 @@ function UploadDropzone({ onFile }) {
   );
 }
 
-function DashboardView({ token, onOpenCasePicker }) {
+function OverviewView({ token }) {
   const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await apiFetch("/dashboard/summary", {}, token);
+        setSummary(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [token]);
+
+  return (
+    <div className="space-y-6 max-w-5xl">
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold heading-tight text-slate-900">System Overview</h2>
+        <p className="text-sm muted">High-level statistics and risk summary for the current database.</p>
+      </div>
+      
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div>}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {loading ? (
+          <>
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+          </>
+        ) : (
+          <>
+            <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#374F6B" />
+            <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#374F6B" />
+            <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#374F6B" />
+            <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#B22222" />
+          </>
+        )}
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold heading-tight text-slate-900">Risk Breakdown</h2>
+            <p className="text-sm muted">Distribution of flagged parties by severity level.</p>
+          </div>
+          <button
+            onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv"))}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
+          >
+            Export All to CSV
+          </button>
+        </div>
+        
+        <div className="grid gap-4 md:grid-cols-3">
+          {loading ? (
+            <>
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+              <Skeleton className="h-24" />
+            </>
+          ) : (
+            <>
+              <StatCard label="Low Risk" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
+              <StatCard label="Medium Risk" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
+              <StatCard label="High Risk" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#B22222" />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardView({ token, onOpenCasePicker }) {
   const [network, setNetwork] = useState({ nodes: [], edges: [] });
   const [timeline, setTimeline] = useState([]);
   const [topFlagged, setTopFlagged] = useState([]);
@@ -554,13 +634,11 @@ function DashboardView({ token, onOpenCasePicker }) {
     setError("");
     setLoading(true);
     try {
-      const [summaryData, networkData, timelineData, flaggedData] = await Promise.all([
-        apiFetch("/dashboard/summary", {}, token),
+      const [networkData, timelineData, flaggedData] = await Promise.all([
         apiFetch("/dashboard/network?limit=500", {}, token),
         apiFetch("/dashboard/timeline?granularity=day", {}, token),
         apiFetch("/flags/top", {}, token),
       ]);
-      setSummary(summaryData);
       setNetwork(networkData);
       setTimeline(timelineData);
       setTopFlagged(flaggedData);
@@ -593,99 +671,60 @@ function DashboardView({ token, onOpenCasePicker }) {
   };
 
   return (
-    <div className="space-y-6">
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div> : null}
+    <div className="space-y-4 h-full flex flex-col">
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700 shrink-0">{error}</div> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[300px_1fr_400px]">
+      {/* TOP: Upload Section spanning full width */}
+      <section className="card p-4 fade-in flex items-center justify-between shrink-0 bg-white">
+         <div className="flex items-center gap-4">
+           <div>
+             <h2 className="text-lg font-bold text-slate-900">Investigation Data</h2>
+             <p className="text-xs text-slate-500">Upload new IPDR logs to update the map</p>
+           </div>
+         </div>
+         <div className="flex items-center gap-4">
+           {uploadResult && (
+             <div className="text-xs text-slate-600 border-r pr-4 border-slate-200">
+               <span className="font-semibold text-slate-800">{uploadResult.filename}</span> &middot; {uploadResult.valid_rows} valid rows
+             </div>
+           )}
+           <label className="flex cursor-pointer items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white shadow-sm hover:shadow-md transition" style={{ backgroundColor: "#374F6B" }}>
+             <Upload size={16} />
+             Upload file
+             <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
+           </label>
+         </div>
+      </section>
+
+      {/* BOTTOM: 2 Column Layout (Graph Left, Intelligence Right) */}
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-[1fr_350px] flex-grow min-h-[700px]">
         
-        {/* LEFT PANEL: Stats & Upload */}
-        <div className="flex flex-col gap-6">
-          <section className="card p-5 fade-in space-y-4">
-            <h2 className="text-xl font-bold heading-tight text-slate-900 mb-4">Overview</h2>
-            {loading ? (
-              <div className="space-y-4">
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-                <Skeleton className="h-24" />
-              </div>
-            ) : (
-              <>
-                <StatCard label="Total records" value={summary?.total_records ?? 0} icon={Database} accent="#374F6B" />
-                <StatCard label="Unique Callers" value={summary?.unique_a_parties ?? 0} icon={Users} accent="#374F6B" />
-                <StatCard label="Unique Receivers" value={summary?.unique_b_parties ?? 0} icon={Network} accent="#374F6B" />
-                <StatCard label="Flagged Callers" value={summary?.flagged_parties ?? 0} icon={AlertTriangle} accent="#B22222" />
-              </>
-            )}
-          </section>
-
-          <section className="card p-5 fade-in">
-            <h2 className="text-lg font-bold heading-tight text-slate-900 mb-4">Risk Summary</h2>
-            <div className="space-y-3">
-              {loading ? (
-                <>
-                  <Skeleton className="h-20" />
-                  <Skeleton className="h-20" />
-                  <Skeleton className="h-20" />
-                </>
-              ) : (
-                <>
-                  <StatCard label="Low Risk" value={summary?.risk_counts?.low ?? 0} icon={AlertTriangle} accent="#64748b" />
-                  <StatCard label="Medium Risk" value={summary?.risk_counts?.medium ?? 0} icon={AlertTriangle} accent="#d97706" />
-                  <StatCard label="High Risk" value={summary?.risk_counts?.high ?? 0} icon={AlertTriangle} accent="#B22222" />
-                </>
-              )}
+        {/* LEFT COLUMN: Map & Timeline */}
+        <div className="flex flex-col gap-4">
+          <section className="card p-4 fade-in flex-grow flex flex-col">
+            <div className="mb-2">
+              <h2 className="text-lg font-bold text-slate-900">Connection Map</h2>
             </div>
-            <button
-              onClick={() => apiFetch("/export/csv", { method: "GET" }, token).then((blob) => downloadBlob(blob, "ipdr_export.csv"))}
-              className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:shadow-sm"
-            >
-              Export CSV
-            </button>
-          </section>
-
-          <section className="card p-5 fade-in">
-            <h2 className="text-lg font-bold heading-tight text-slate-900 mb-4">Data Source</h2>
-            <label
-              className="mb-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm w-full"
-              style={{ backgroundColor: ACCENT }}
-            >
-              <Upload size={16} />
-              Upload file
-              <input type="file" accept=".csv,.txt,.json" onChange={onUploadInput} className="hidden" />
-            </label>
-            <UploadDropzone onFile={uploadByFile} />
-          </section>
-        </div>
-
-        {/* CENTER PANEL: Map & Timeline */}
-        <div className="flex flex-col gap-6">
-          <section className="card p-5 fade-in flex-grow flex flex-col">
-            <div className="mb-4">
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Connection Map</h2>
-              <p className="text-sm muted">A visual map of who is contacting whom. Click on any suspicious red dot to see its connections.</p>
-            </div>
-            <div className="flex-grow min-h-[500px]">
+            <div className="flex-grow bg-slate-50 rounded-xl overflow-hidden border border-slate-100 min-h-[400px]">
               {loading ? <Skeleton className="h-full w-full" /> : <NetworkGraph nodes={network.nodes} edges={network.edges} focusedNode={focusedNode} riskLookup={riskLookup} />}
             </div>
           </section>
 
-          <section className="card p-5 fade-in">
-            <div className="mb-4">
-              <h2 className="text-xl font-bold heading-tight text-slate-900">Communication Volume Over Time</h2>
-              <p className="text-sm muted">Detect traffic spikes and unusual windows quickly.</p>
+          <section className="card p-4 fade-in h-64 shrink-0">
+            <div className="mb-2">
+              <h2 className="text-lg font-bold text-slate-900">Communication Timeline</h2>
             </div>
-            <div className="h-64">
+            <div className="h-48">
               {loading ? (
                 <Skeleton className="h-full w-full" />
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={timeline}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 12 }} />
-                    <YAxis tick={{ fill: "#475569", fontSize: 12 }} />
-                    <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a" }} />
-                    <Area type="monotone" dataKey="count" stroke={ACCENT} fill={ACCENT} fillOpacity={0.16} />
+                    <XAxis dataKey="period" tick={{ fill: "#475569", fontSize: 11 }} />
+                    <YAxis tick={{ fill: "#475569", fontSize: 11 }} width={40} />
+                    <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#0f172a", fontSize: "12px" }} />
+                    <Area type="monotone" dataKey="count" stroke="#374F6B" fill="#374F6B" fillOpacity={0.16} />
                   </AreaChart>
                 </ResponsiveContainer>
               )}
@@ -693,71 +732,64 @@ function DashboardView({ token, onOpenCasePicker }) {
           </section>
         </div>
 
-        {/* RIGHT PANEL: Suspicious Numbers & Upload Summary */}
-        <div className="flex flex-col gap-6">
-          <section className="card p-5 fade-in h-full flex flex-col">
-            <h2 className="text-xl font-bold heading-tight text-slate-900 mb-4">Intelligence Feed</h2>
-            
-            {uploadResult ? (
-              <div className="mb-6 rounded-xl bg-slate-50 p-4 border border-slate-100">
-                <h3 className="text-sm font-semibold text-slate-700 mb-2">Last Upload Status</h3>
-                <div className="grid gap-1 text-xs text-slate-600">
-                  <p><span className="font-medium text-slate-800">File:</span> {uploadResult.filename}</p>
-                  <p><span className="font-medium text-slate-800">Valid rows:</span> {uploadResult.valid_rows} / {uploadResult.total_rows}</p>
-                  <p><span className="font-medium text-slate-800">Errors:</span> <span className={uploadResult.error_rows > 0 ? "text-red-600 font-medium" : ""}>{uploadResult.error_rows}</span></p>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex-grow flex flex-col">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 mb-3">Most Suspicious Numbers</h3>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {[["all", "All Suspicious"], ["auto", "Auto-detected"], ["manual", "Manually Flagged"], ["blacklist", "Blacklist Match"]].map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setTopFilter(key)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="space-y-3 overflow-y-auto pr-1" style={{ maxHeight: '800px' }}>
-                {loading ? (
-                  <>
-                    <Skeleton className="h-32" />
-                    <Skeleton className="h-32" />
-                    <Skeleton className="h-32" />
-                  </>
-                ) : (
-                  filteredTopFlagged.slice(0, 10).map((row) => (
-                    <button
-                      key={row.a_party}
-                      onClick={() => setFocusedNode(row.a_party)}
-                      className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300" : ""}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-lg text-slate-800 tracking-wide">{row.a_party}</span>
-                        <div className="flex flex-col items-end gap-1">
-                          <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold flex items-center gap-1 ${riskTone(row.risk_level)}`}><ShieldAlert size={14}/> {row.risk_level} Risk</span>
-                          {row.blacklist_matches?.length ? (
-                            <span className={`rounded-lg border px-2 py-0.5 text-[10px] font-bold ${blacklistTone()}`}>Blacklist Match</span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-700">
-                        <strong>Activity:</strong> Contacted <strong>{row.distinct_b_parties}</strong> different people, sending <strong>{row.interaction_count}</strong> calls/messages. (Risk Score: {row.risk_score})
-                      </p>
-                      <div className="mt-3" onClick={(e) => e.stopPropagation()}>
-                        <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
+        {/* RIGHT COLUMN: Intelligence Feed */}
+        <section className="card fade-in flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b border-slate-100 shrink-0">
+            <h2 className="text-lg font-bold text-slate-900 mb-1">Intelligence Feed</h2>
+            <p className="text-xs text-slate-500">Most Suspicious Numbers</p>
+          </div>
+          
+          <div className="p-4 border-b border-slate-100 bg-slate-50 shrink-0">
+            <div className="flex flex-wrap gap-2">
+              {[["all", "All"], ["auto", "Auto"], ["manual", "Manual"], ["blacklist", "Blacklist"]].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setTopFilter(key)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${topFilter === key ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          </section>
-        </div>
+          </div>
+
+          <div className="p-3 space-y-2 overflow-y-auto flex-grow" style={{ maxHeight: '100%' }}>
+            {loading ? (
+              <>
+                <Skeleton className="h-28" />
+                <Skeleton className="h-28" />
+                <Skeleton className="h-28" />
+              </>
+            ) : (
+              filteredTopFlagged.slice(0, 20).map((row) => (
+                <button
+                  key={row.a_party}
+                  onClick={() => setFocusedNode(row.a_party)}
+                  className={`w-full rounded-xl border border-slate-200 border-l-4 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 hover:shadow ${riskBorder(row.risk_level)} ${focusedNode === row.a_party ? "ring-2 ring-blue-300 bg-blue-50/50" : ""}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-base text-slate-800 tracking-wide">{row.a_party}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`rounded-lg border px-2 py-0.5 text-[10px] font-bold flex items-center gap-1 ${riskTone(row.risk_level)}`}><ShieldAlert size={12}/> {row.risk_level} Risk</span>
+                      {row.blacklist_matches?.length ? (
+                        <span className={`rounded-lg border px-1.5 py-0.5 text-[9px] font-bold ${blacklistTone()}`}>Blacklist</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    Contacted <strong>{row.distinct_b_parties}</strong> people, sent <strong>{row.interaction_count}</strong> calls/msgs. (Score: {row.risk_score})
+                  </p>
+                  <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+                    <WhyFlaggedPopover details={row.risk_details || row.flags || []} risk={{ score: row.risk_score, level: row.risk_level }} />
+                  </div>
+                </button>
+              ))
+            )}
+            {filteredTopFlagged.length === 0 && !loading && (
+               <div className="p-4 text-center text-sm text-slate-500">No suspicious numbers found for this filter.</div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -1611,7 +1643,10 @@ function SettingsView({ token }) {
 function Shell({ token, username, onLogout }) {
   const [view, setView] = useState("dashboard");
   const [casePickerSubject, setCasePickerSubject] = useState("");
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
   const menu = [
+    { id: "overview", label: "Overview", icon: PieChart },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "logs", label: "Past Logs", icon: FileText },
     { id: "cases", label: "Cases", icon: Folder },
@@ -1623,15 +1658,27 @@ function Shell({ token, username, onLogout }) {
   return (
     <div className="min-h-full bg-slate-50 text-slate-900">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 flex-col border-r border-slate-200 bg-slate-100 px-4 py-6 lg:flex">
-          <div className="mb-8 px-2 flex items-center gap-3">
-            <img src="/logo.png" alt="MP Police Logo" className="h-14 w-auto object-contain drop-shadow-sm" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>Madhya Pradesh</p>
-              <h2 className="text-2xl font-bold heading-tight text-slate-900 leading-none mt-0.5">POLICE</h2>
-            </div>
+        
+        {/* SIDEBAR */}
+        <aside className={`hidden flex-col border-r border-slate-200 bg-slate-100 py-6 transition-all duration-300 lg:flex ${isCollapsed ? 'w-20 items-center px-2' : 'w-72 px-4'}`}>
+          <div className={`mb-8 flex items-center ${isCollapsed ? 'justify-center' : 'gap-3 px-2'} w-full relative`}>
+            <img src="/logo.png" alt="Logo" className={`object-contain drop-shadow-sm transition-all duration-300 ${isCollapsed ? 'h-10 w-10' : 'h-14 w-auto'}`} />
+            {!isCollapsed && (
+              <div className="transition-opacity duration-300 overflow-hidden whitespace-nowrap">
+                <p className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: ACCENT }}>Madhya Pradesh</p>
+                <h2 className="text-2xl font-bold heading-tight text-slate-900 leading-none mt-0.5">POLICE</h2>
+              </div>
+            )}
+            <button 
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 bg-white border border-slate-200 rounded-full p-1 text-slate-500 hover:text-slate-900 hover:shadow-md transition z-10"
+              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
           </div>
-          <nav className="space-y-1">
+          
+          <nav className="space-y-2 w-full">
             {menu.map((item) => {
               const Icon = item.icon;
               const active = view === item.id;
@@ -1639,44 +1686,49 @@ function Shell({ token, username, onLogout }) {
                 <button
                   key={item.id}
                   onClick={() => setView(item.id)}
-                  className={`flex w-full items-center gap-2 rounded-r-xl border-l-4 px-3 py-2.5 text-left text-sm font-medium transition ${active ? "bg-[#374F6B] text-white shadow-md font-bold" : "border-transparent text-slate-700 hover:bg-slate-200"}`}
+                  title={isCollapsed ? item.label : ""}
+                  className={`flex items-center rounded-xl transition-all duration-200 
+                    ${isCollapsed ? 'w-12 h-12 justify-center mx-auto' : 'w-full gap-3 px-3 py-2.5 text-left'} 
+                    ${active ? "bg-[#374F6B] text-white shadow-md font-bold" : "text-slate-700 hover:bg-slate-200"}`}
                 >
-                  <Icon size={16} />
-                  {item.label}
+                  <Icon size={isCollapsed ? 22 : 18} />
+                  {!isCollapsed && <span className="text-sm font-medium whitespace-nowrap overflow-hidden">{item.label}</span>}
                 </button>
               );
             })}
           </nav>
-          <div className="mt-auto pt-6">
-            <button onClick={onLogout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:shadow-sm">
+          
+          <div className="mt-auto pt-6 w-full">
+            <button 
+              onClick={onLogout} 
+              title={isCollapsed ? "Logout" : ""}
+              className={`flex items-center justify-center rounded-xl border border-slate-300 bg-white transition hover:shadow-sm text-slate-700 hover:text-red-600
+                ${isCollapsed ? 'w-12 h-12 mx-auto' : 'w-full gap-2 px-4 py-3 text-sm font-medium'}`}
+            >
               <LogOut size={16} />
-              Logout
+              {!isCollapsed && "Logout"}
             </button>
           </div>
         </aside>
 
-        <main className="flex-1">
-          <header className="border-b border-slate-200 bg-white px-4 py-4 lg:px-8">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+          <header className="border-b border-slate-200 bg-white px-4 py-4 lg:px-6 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button 
+                className="lg:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+              >
+                <Menu size={20} />
+              </button>
               <div>
-                <p className="text-sm muted">Logged in as {username}</p>
-                <h1 className="text-2xl font-bold heading-tight capitalize text-slate-900">{view}</h1>
-              </div>
-              <div className="flex gap-2 lg:hidden">
-                {menu.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setView(item.id)}
-                    className={`rounded-xl px-3 py-2 text-sm ${view === item.id ? "bg-blue-100 text-blue-800" : "bg-white border border-slate-300 text-slate-700"}`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+                <h1 className="text-xl font-bold heading-tight capitalize text-slate-900">{view}</h1>
+                <p className="text-xs text-slate-500">Logged in as {username}</p>
               </div>
             </div>
           </header>
 
-          <div className="p-4 lg:p-8">
+          <div className="p-4 lg:p-6 flex-grow flex flex-col bg-slate-50/50">
+            {view === "overview" ? <OverviewView token={token} /> : null}
             {view === "dashboard" ? <DashboardView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
             {view === "logs" ? <LogsView token={token} /> : null}
             {view === "cases" ? <CasesView token={token} onOpenCasePicker={(subject) => setCasePickerSubject(subject)} /> : null}
@@ -1693,10 +1745,6 @@ function Shell({ token, username, onLogout }) {
               onAssigned={() => setCasePickerSubject("")}
             />
           ) : null}
-
-          <footer className="border-t border-slate-200 bg-white px-4 py-4 text-xs muted lg:px-8">
-            Data is handled per privacy-compliance guidelines for local investigative analysis demos.
-          </footer>
         </main>
       </div>
     </div>
