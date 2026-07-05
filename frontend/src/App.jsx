@@ -1649,11 +1649,11 @@ function Shell({ token, username, onLogout }) {
   const [isCollapsed, setIsCollapsed] = useState(true);
 
   const menu = [
-    { id: "overview", label: "Overview", icon: PieChart },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "logs", label: "Past Logs", icon: FileText },
     { id: "cases", label: "Cases", icon: Folder },
     { id: "search", label: "Search", icon: Search },
+    { id: "overview", label: "Overview", icon: PieChart },
     { id: "blacklist", label: "Blacklist", icon: ShieldAlert },
     { id: "settings", label: "Alert Rules", icon: Settings },
   ];
