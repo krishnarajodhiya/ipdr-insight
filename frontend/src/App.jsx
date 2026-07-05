@@ -756,7 +756,7 @@ function DashboardView({ token, onOpenCasePicker }) {
             </div>
           </div>
 
-          <div className="p-3 space-y-2 overflow-y-auto flex-grow" style={{ maxHeight: '100%' }}>
+          <div className="p-3 space-y-2 overflow-y-auto flex-grow" style={{ maxHeight: '520px' }}>
             {loading ? (
               <>
                 <Skeleton className="h-28" />
