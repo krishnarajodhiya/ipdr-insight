@@ -670,7 +670,13 @@ function DashboardView({ token, onOpenCasePicker }) {
 
   const onUploadInput = (event) => {
     const file = event.target.files?.[0];
-    if (file) uploadByFile(file);
+    if (file) {
+      if (file.size > 3 * 1024 * 1024) {
+        setError("File exceeds the maximum upload limit of 3MB. Please use a smaller sample dataset.");
+        return;
+      }
+      uploadByFile(file);
+    }
   };
 
   return (
