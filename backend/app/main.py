@@ -228,6 +228,7 @@ def upload_detail(upload_id: int, user=Depends(get_current_user)):
             FROM records
             WHERE upload_id = ?
             ORDER BY timestamp DESC, id DESC
+            LIMIT 2000
             """,
             (upload_id,),
         ).fetchall()]

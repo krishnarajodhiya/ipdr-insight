@@ -321,6 +321,7 @@ def fetch_all_records(conn):
                duration_sec, port, data_volume, session_type, raw_json
         FROM records
         ORDER BY timestamp DESC, id DESC
+        LIMIT 2000
         """
     ).fetchall()
 
