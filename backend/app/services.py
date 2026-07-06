@@ -399,6 +399,31 @@ def compute_flags(conn, records: Optional[list[dict[str, Any]]] = None) -> dict[
         return hour >= night_start or hour < night_end
 
     for a_party, items in by_a.items():
+        a_matches = blacklist_lookup.get(a_party, [])
+        for entry in a_matches:
+            match_key = f"{entry['value_type']}:{entry['value']}"
+            if any(existing.get("match_key") == match_key for existing in blacklist_matches_by_a[a_party]):
+                continue
+            flag = {
+                "type": "blacklist_match_self",
+                "message": f"This number is blacklisted ({entry['label']})",
+                "severity": "high",
+                "count": 1,
+                "source": "blacklist",
+                "label": entry["label"],
+                "value": entry["value"],
+                "value_type": entry["value_type"],
+                "match_key": match_key,
+            }
+            add_contribution(a_party, flag, 10)
+            blacklist_matches_by_a[a_party].append({
+                "match_key": match_key,
+                "value": entry["value"],
+                "value_type": entry["value_type"],
+                "label": entry["label"],
+                "message": flag["message"],
+            })
+
         night_count = sum(1 for r in items if is_night(r["dt"].hour))
         if night_count > night_threshold:
             add_contribution(
