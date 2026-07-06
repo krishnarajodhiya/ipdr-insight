@@ -149,26 +149,7 @@ def seed_defaults(conn):
 
 
 def seed_reference_data(conn):
-    entries = [
-        ("198.51.100.77", "ip", "Known VPN exit node used in prior cybercrime case"),
-        ("203.0.113.90", "ip", "Previously linked to fraud ring command host"),
-        ("203.0.113.200", "ip", "Proxy endpoint associated with credential theft"),
-        ("198.51.100.14", "ip", "Disposable infrastructure used for phishing delivery"),
-        ("198.51.100.24", "ip", "Suspicious relay observed in abuse reports"),
-        ("198.51.100.29", "ip", "Botnet staging server from prior investigation"),
-        ("10.10.10.10", "ip", "Known malware C2 test fixture"),
-        ("172.16.200.15", "ip", "Residential proxy node tied to account takeover"),
-        ("8000001000", "number", "Caller ID tied to harassment complaint"),
-        ("8000002000", "number", "Number used in prior extortion attempt"),
-        ("8000099000", "number", "Disposal SIM linked to coordinated fraud"),
-        ("9177000001", "number", "Previously seen in late-night burst activity"),
-        ("9177000002", "number", "Short-call relay number in prior telecom case"),
-        ("9177000003", "number", "High fan-out number flagged by partners"),
-        ("9199000004", "number", "Suspected mule line used for laundering support"),
-        ("9199000005", "number", "Blacklisted outreach number from spam ring"),
-        ("9199000006", "number", "SIM used for repeated OTP interception"),
-        ("192.0.2.250", "ip", "Known bad IP from demo threat feed"),
-    ]
+    entries = []
     for value, value_type, label in entries:
         conn.execute(
             """
