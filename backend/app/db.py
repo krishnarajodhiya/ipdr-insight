@@ -67,6 +67,7 @@ def initialize_db():
                 row_index INTEGER,
                 a_party TEXT,
                 b_party_ip TEXT,
+                b_party_hostname TEXT,
                 b_party_number TEXT,
                 timestamp TEXT NOT NULL,
                 duration_sec REAL NOT NULL DEFAULT 0,
@@ -149,7 +150,7 @@ def seed_defaults(conn):
 
 
 def seed_reference_data(conn):
-    entries = []
+    entries = [("198.51.100.23", "ip", "Malicious Server")]
     for value, value_type, label in entries:
         conn.execute(
             """

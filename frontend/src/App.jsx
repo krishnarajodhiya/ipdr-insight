@@ -951,7 +951,7 @@ function SearchView({ token, onOpenCasePicker }) {
                 {rows.map((row) => (
                   <tr key={`${row.a_party}-${row.b_party_ip}-${row.b_party_number}`} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-3 py-3">{row.a_party}</td>
-                    <td className="px-3 py-3">{formatValue(row.b_party_ip || row.b_party_number)}</td>
+                    <td className="px-3 py-3">{row.b_party_hostname ? `${row.b_party_hostname} (${row.b_party_ip})` : formatValue(row.b_party_ip || row.b_party_number)}</td>
                     <td className="px-3 py-3">{row.interaction_count}</td>
                     <td className="px-3 py-3">{Math.round(row.total_duration_sec)}</td>
                     <td className="px-3 py-3">{row.first_seen}</td>
@@ -1026,7 +1026,7 @@ function SearchView({ token, onOpenCasePicker }) {
                 <tbody>
                   {selected.interactions.map((item) => (
                     <tr key={`${item.b_party_ip}-${item.b_party_number}`} className="border-b border-slate-100">
-                      <td className="px-3 py-3">{item.b_party_ip || item.b_party_number}</td>
+                      <td className="px-3 py-3">{item.b_party_hostname ? `${item.b_party_hostname} (${item.b_party_ip})` : (item.b_party_ip || item.b_party_number)}</td>
                       <td className="px-3 py-3">{item.interaction_count}</td>
                       <td className="px-3 py-3">{Math.round(item.total_duration_sec)}</td>
                       <td className="px-3 py-3">{item.first_seen}</td>
@@ -1101,7 +1101,7 @@ function ReportSheet({ data, kind }) {
             {interactionRows.slice(0, 12).map((row, index) => (
               <tr key={index}>
                 <td className="border-b border-slate-100 px-2 py-2">{row.a_party || data.a_party || "-"}</td>
-                <td className="border-b border-slate-100 px-2 py-2">{row.b_party_ip || row.b_party_number || row.subject || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-2">{row.b_party_hostname ? `${row.b_party_hostname} (${row.b_party_ip})` : (row.b_party_ip || row.b_party_number || row.subject || "-")}</td>
                 <td className="border-b border-slate-100 px-2 py-2">{row.timestamp || row.first_seen || row.created_at || "-"}</td>
                 <td className="border-b border-slate-100 px-2 py-2">{Math.round(row.duration_sec || row.total_duration_sec || 0)}</td>
               </tr>
@@ -1555,7 +1555,7 @@ function LogsView({ token }) {
                         {selectedUpload.records.map((row) => (
                           <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50">
                             <td className="px-3 py-2">{row.a_party}</td>
-                            <td className="px-3 py-2">{row.b_party_ip || row.b_party_number}</td>
+                            <td className="px-3 py-2">{row.b_party_hostname ? `${row.b_party_hostname} (${row.b_party_ip})` : (row.b_party_ip || row.b_party_number)}</td>
                             <td className="px-3 py-2">{row.timestamp}</td>
                             <td className="px-3 py-2">{Math.round(row.duration_sec || 0)}</td>
                           </tr>

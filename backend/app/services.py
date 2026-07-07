@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import re
+import socket
 from collections import Counter, defaultdict
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta
@@ -267,16 +268,34 @@ def import_records(conn, filename: str, rows: list[dict[str, Any]], file_type: s
     valid_rows = 0
     errors = []
     date_values = []
+    
+    # Simple cache for this upload batch
+    dns_cache = {}
+    socket.setdefaulttimeout(0.5)
+
+    def resolve_ip(ip: str) -> str:
+        if not ip:
+            return ""
+        if ip in dns_cache:
+            return dns_cache[ip]
+        try:
+            hostname = socket.gethostbyaddr(ip)[0]
+            dns_cache[ip] = hostname
+            return hostname
+        except Exception:
+            dns_cache[ip] = ""
+            return ""
 
     for idx, raw in enumerate(rows, start=1):
         try:
             record = normalize_record(raw)
+            b_party_hostname = resolve_ip(record["b_party_ip"])
             date_values.append(record["timestamp"])
             conn.execute(
                 """
                 INSERT INTO records
-                (upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp, duration_sec, port, data_volume, session_type, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (upload_id, source_file, row_index, a_party, b_party_ip, b_party_hostname, b_party_number, timestamp, duration_sec, port, data_volume, session_type, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     upload_id,
@@ -284,6 +303,7 @@ def import_records(conn, filename: str, rows: list[dict[str, Any]], file_type: s
                     idx,
                     record["a_party"],
                     record["b_party_ip"],
+                    b_party_hostname,
                     record["b_party_number"],
                     record["timestamp"],
                     record["duration_sec"],
@@ -317,7 +337,7 @@ def import_records(conn, filename: str, rows: list[dict[str, Any]], file_type: s
 def fetch_all_records(conn):
     return conn.execute(
         """
-        SELECT id, upload_id, source_file, row_index, a_party, b_party_ip, b_party_number, timestamp,
+        SELECT id, upload_id, source_file, row_index, a_party, b_party_ip, b_party_hostname, b_party_number, timestamp,
                duration_sec, port, data_volume, session_type, raw_json
         FROM records
         ORDER BY timestamp DESC, id DESC
@@ -582,10 +602,13 @@ def aggregate_interactions(rows):
     for (a_party, b_ip, b_num), items in grouped.items():
         first_seen = min(item["timestamp"] for item in items)
         last_seen = max(item["timestamp"] for item in items)
+        # Try to extract the first available hostname from the grouped items
+        b_hostname = next((item.get("b_party_hostname") for item in items if item.get("b_party_hostname")), "")
         results.append(
             {
                 "a_party": a_party,
                 "b_party_ip": b_ip,
+                "b_party_hostname": b_hostname,
                 "b_party_number": b_num,
                 "interaction_count": len(items),
                 "total_duration_sec": round(sum(float(item["duration_sec"] or 0) for item in items), 2),
@@ -618,7 +641,7 @@ def record_matches_filters(record, filters):
         q = filters["query"].lower()
         hay = " ".join(
             str(record.get(field, "")).lower()
-            for field in ("a_party", "b_party_ip", "b_party_number", "session_type", "port")
+            for field in ("a_party", "b_party_ip", "b_party_hostname", "b_party_number", "session_type", "port")
         )
         if q not in hay:
             return False
